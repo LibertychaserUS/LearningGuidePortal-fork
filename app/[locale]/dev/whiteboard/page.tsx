@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import WhiteboardDemo from "@/components/portal/WhiteboardDemo";
 
 // Prototype playground, local `next dev` only: never served by a build.
-export default function WhiteboardDemoPage() {
+// `?as=<id>` shows one person's screen only, so separate browsers can join.
+export default async function WhiteboardDemoPage({ searchParams }: { searchParams: Promise<{ as?: string }> }) {
   if (process.env.NODE_ENV !== "development") notFound();
-  return <WhiteboardDemo />;
+  const { as } = await searchParams;
+  return <WhiteboardDemo only={typeof as === "string" ? as : undefined} />;
 }

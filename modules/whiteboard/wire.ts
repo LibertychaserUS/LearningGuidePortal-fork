@@ -1,10 +1,12 @@
-import { BOARD, WHITEBOARD_COLORS, type BoardOp } from "./domain";
+import { BOARD, WHITEBOARD_COLORS, WHITEBOARD_LIMITS, WHITEBOARD_TOOLS, type BoardOp, type WhiteboardTool } from "./domain";
+import type { Presentation } from "./presentation";
 import { parseBoardKey, type Stage } from "./stage";
 
 // Two LiveKit data topics. The room's chat, hands and AI Tutor stay on the
 // default topic, so none of the parsers ever sees another's packets.
-//  - lg.whiteboard: the stage and committed ops, sent by the server only
-//    (RoomService.SendData, reliable).
+//  - lg.whiteboard: the stage, committed ops and (to hosts) courseware
+//    conversion progress, sent by the server only (RoomService.SendData,
+//    reliable).
 //  - lg.whiteboard.ink: ink still being drawn, sent member to member
 //    (lossy). Shown as a fading preview, never stored, never trusted as board.
 export const WHITEBOARD_TOPIC = "lg.whiteboard";
@@ -12,9 +14,12 @@ export const WHITEBOARD_INK_TOPIC = "lg.whiteboard.ink";
 
 export type WhiteboardMessage =
   | { kind: "stage"; stage: Stage }
-  | { kind: "op"; board: string; op: BoardOp };
+  | { kind: "op"; board: string; op: BoardOp }
+  | { kind: "presentation"; presentation: Presentation };
 
-export type InkPreview = { board: string; strokeId: string; color: string; width: number; points: ReadonlyArray<readonly [number, number]>; done?: boolean };
+// A shape still being drawn. Freehand tools send the new points since the
+// last preview; two-point tools send their current start and end.
+export type InkPreview = { board: string; strokeId: string; tool: WhiteboardTool; color: string; width: number; points: ReadonlyArray<readonly [number, number]>; done?: boolean };
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -75,6 +80,11 @@ export function parseWhiteboardMessage(raw: Uint8Array, senderIdentity: string):
       return { kind: "op", board, op: op as unknown as BoardOp };
     }
   }
+  if (message.kind === "presentation") {
+    const presentation = message.presentation as Record<string, unknown> | undefined;
+    if (!presentation || typeof presentation.id !== "string" || typeof presentation.status !== "string") return null;
+    return { kind: "presentation", presentation: presentation as unknown as Presentation };
+  }
   return null;
 }
 
@@ -86,8 +96,9 @@ export function parseInk(raw: Uint8Array, senderIdentity: string): InkPreview | 
   const board = ink ? boardOf(ink.board) : null;
   if (!ink || !board || typeof ink.strokeId !== "string" || !Array.isArray(ink.points)) return null;
   const color = WHITEBOARD_COLORS.find((item) => item === ink.color);
-  if (!color || !Number.isInteger(ink.width)) return null;
+  const tool = WHITEBOARD_TOOLS.find((item) => item === ink.tool && item !== "text");
+  if (!color || !tool || !Number.isInteger(ink.width)) return null;
   const points = ink.points.slice(0, 200).filter((point): point is [number, number] => Array.isArray(point) && Number.isInteger(point[0]) && Number.isInteger(point[1]))
-    .map(([x, y]) => [Math.min(BOARD.width, Math.max(0, x)), Math.min(BOARD.height, Math.max(0, y))] as [number, number]);
-  return { board, strokeId: ink.strokeId.slice(0, 64), color, width: Math.min(160, Math.max(1, ink.width as number)), points, ...(ink.done === true ? { done: true } : {}) };
+    .map(([x, y]) => [Math.min(BOARD.width, Math.max(0, x)), Math.min(BOARD.maxHeight, Math.max(0, y))] as [number, number]);
+  return { board, strokeId: ink.strokeId.slice(0, 64), tool, color, width: Math.min(WHITEBOARD_LIMITS.maxWidth, Math.max(1, ink.width as number)), points, ...(ink.done === true ? { done: true } : {}) };
 }

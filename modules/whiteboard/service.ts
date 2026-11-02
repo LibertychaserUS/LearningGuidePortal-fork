@@ -1,5 +1,5 @@
 import { parseStroke, replay, WhiteboardError, WHITEBOARD_LIMITS, type BoardOp, type BoardOpInput } from "./domain";
-import { applyStageCommand, audience, boardKey, canDraw, canSee, initialStage, parseBoardKey, parseStageCommand, type Role, type Stage } from "./stage";
+import { applyStageCommand, audience, boardKey, canDraw, canSee, initialStage, parseBoardKey, parseStageCommand, type PresentationRef, type Role, type Stage } from "./stage";
 import type { WhiteboardMessage } from "./wire";
 
 // Ports. The prototype ships an in-memory store; production keeps the same
@@ -26,7 +26,11 @@ export type WhiteboardRoster = (sessionId: string) => Promise<{ hostIds: string[
 // browsers repair what they missed from the stage and the logs.
 export type WhiteboardBroadcaster = (input: { sessionId: string; message: WhiteboardMessage; destinationIdentities?: string[] }) => Promise<void>;
 
-export function createWhiteboardService(deps: { store: WhiteboardStore; roster: WhiteboardRoster; broadcast: WhiteboardBroadcaster }) {
+// A ready presentation of the session, for the "present" command
+// (presentationService.ts ref).
+export type WhiteboardPresentations = (sessionId: string, presentationId: string) => Promise<PresentationRef | null>;
+
+export function createWhiteboardService(deps: { store: WhiteboardStore; roster: WhiteboardRoster; broadcast: WhiteboardBroadcaster; presentations?: WhiteboardPresentations }) {
   async function role(sessionId: string, userId: string): Promise<{ role: Role; hostIds: string[]; memberIds: string[] }> {
     const roster = await deps.roster(sessionId);
     if (roster.hostIds.includes(userId)) return { role: "host", ...roster };
@@ -56,11 +60,11 @@ export function createWhiteboardService(deps: { store: WhiteboardStore; roster: 
 
   return {
     // Idempotent: the host opening the board twice gets the same stage.
-    async open(input: { actorUserId: string; sessionId: string; pageCount: number }) {
+    async open(input: { actorUserId: string; sessionId: string }) {
       if ((await role(input.sessionId, input.actorUserId)).role !== "host") throw new WhiteboardError("forbidden");
       const existing = await deps.store.readStage(input.sessionId);
       if (existing) return existing;
-      await deps.store.writeStage(input.sessionId, -1, initialStage(input.sessionId, input.pageCount));
+      await deps.store.writeStage(input.sessionId, -1, initialStage(input.sessionId));
       const opened = await stage(input.sessionId);
       await send(input.sessionId, { kind: "stage", stage: opened });
       return opened;
@@ -75,11 +79,12 @@ export function createWhiteboardService(deps: { store: WhiteboardStore; roster: 
       const actor = await role(input.sessionId, input.actorUserId);
       if (actor.role !== "host") throw new WhiteboardError("forbidden");
       const command = parseStageCommand(input.command);
+      const presentation = command.type === "present" && deps.presentations ? await deps.presentations(input.sessionId, command.presentationId) : null;
       // One retry on a version race between two host tabs; a second loss is
       // reported, not hidden.
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const current = await stage(input.sessionId);
-        const next = applyStageCommand(current, command, actor.memberIds);
+        const next = applyStageCommand(current, command, actor.memberIds, presentation);
         if (!next) return current;
         if (await deps.store.writeStage(input.sessionId, current.version, next)) {
           await send(input.sessionId, { kind: "stage", stage: next });
@@ -102,7 +107,6 @@ export function createWhiteboardService(deps: { store: WhiteboardStore; roster: 
       const actor = await role(input.sessionId, input.actorUserId);
       const board = parseBoardKey(input.board);
       const current = await stage(input.sessionId);
-      if (board.page >= current.pageCount) throw new WhiteboardError("invalid_command");
       if (board.owner !== "main" && !actor.memberIds.includes(board.owner)) throw new WhiteboardError("not_found");
       if (!canDraw(current, actor.role, input.actorUserId, board)) throw new WhiteboardError("forbidden");
       const stroke = parseStroke(input.stroke, input.actorUserId);
@@ -123,7 +127,7 @@ export function createWhiteboardService(deps: { store: WhiteboardStore; roster: 
       return commit(input.sessionId, current, actor.hostIds, key, { kind: "erase", strokeId: stroke.id, byId: input.actorUserId });
     },
 
-    // The host clears any board; a student clears their own board.
+    // The host clears any board; a member clears their own board.
     async clear(input: { actorUserId: string; sessionId: string; board: unknown }) {
       const actor = await role(input.sessionId, input.actorUserId);
       const board = parseBoardKey(input.board);

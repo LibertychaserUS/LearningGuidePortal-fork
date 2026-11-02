@@ -1,6 +1,7 @@
-// Shared whiteboard for a Live Session (prototype, 2026-10-29).
+// Shared whiteboard for a Live Session (prototype, 2026-10-29; tools and
+// courseware pages 2026-11-02, modelled on BigBlueButton).
 //
-// Each board is a log of operations owned by the server. A finished stroke,
+// Each board is a log of operations owned by the server. A finished shape,
 // an erase or a clear is a command: validated, appended with the next
 // sequence number, stored, and only then broadcast over LiveKit. The browser
 // rebuilds a board by replaying its log, so a late joiner or a lost packet is
@@ -8,34 +9,48 @@
 //
 // Ink that is still being drawn is not part of a board. It travels as a
 // lossy member-to-member preview (wire.ts) and is thrown away; only the
-// finished stroke, sent to the server, becomes durable.
+// finished shape, sent to the server, becomes durable.
 //
 // Who may draw on or see which board is the classroom's business (stage.ts).
 // This file is pure: no I/O, no clock, no LiveKit.
 
-// Coordinates are integers on a fixed 10000 x 6250 board (16:10), so every
-// screen size draws the same picture.
-export const BOARD = { width: 10_000, height: 6_250 } as const;
+// Coordinates are integers. x runs 0..10000 across the page; y runs down in
+// the same unit, so a 16:9 slide ends at 5625 and an A4 portrait page at
+// 14142. Every screen size draws the same picture.
+export const BOARD = { width: 10_000, maxHeight: 20_000 } as const;
 
 export const WHITEBOARD_LIMITS = {
   maxPoints: 600,
   minWidth: 4,
-  maxWidth: 160,
+  maxWidth: 800,
+  maxTextLength: 500,
   // A reliable LiveKit data packet should stay under 15 KiB; one op must fit.
   maxOpBytes: 12_000,
   maxStrokes: 3_000
 } as const;
 
-export const WHITEBOARD_COLORS = ["#101828", "#f04438", "#1d6bff", "#12b76a", "#f79009"] as const;
+// BigBlueButton's twelve whiteboard colours, in its order and with its names
+// (black, white, red, orange, electric lime, lime, cyan, dodger blue, blue,
+// violet, magenta, silver); the shades are softened to sit on slides.
+export const WHITEBOARD_COLORS = ["#101828", "#ffffff", "#e5484d", "#f76b15", "#c2e000", "#30a46c", "#05a2c2", "#0090ff", "#3e63dd", "#8e4ec6", "#d6409f", "#8b8d98"] as const;
+
+// Freehand tools carry their points; the two-point tools carry start and end;
+// text carries its anchor point and the words.
+export const WHITEBOARD_TOOLS = ["pen", "highlighter", "line", "arrow", "rect", "ellipse", "triangle", "text"] as const;
+export type WhiteboardTool = (typeof WHITEBOARD_TOOLS)[number];
+export const TWO_POINT_TOOLS: ReadonlyArray<WhiteboardTool> = ["line", "arrow", "rect", "ellipse", "triangle"];
 
 export type BoardPoint = readonly [number, number];
 
 export type Stroke = Readonly<{
   id: string;
   authorId: string;
+  tool: WhiteboardTool;
   color: (typeof WHITEBOARD_COLORS)[number];
+  // Line width, or the font size for text.
   width: number;
   points: ReadonlyArray<BoardPoint>;
+  text?: string;
 }>;
 
 export type BoardOp = Readonly<
@@ -66,25 +81,39 @@ export class WhiteboardError extends Error {
 export const EMPTY_BOARD: Board = { seq: 0, strokes: [] };
 
 const ID = /^[A-Za-z0-9_-]{8,64}$/;
+// Printable text and line breaks only: no other control characters.
+const TEXT = /^[^\u0000-\u0009\u000b-\u001f\u007f]+$/;
 
-// The one validation layer for a stroke from the browser. The shape is
+function point(raw: unknown): BoardPoint {
+  if (!Array.isArray(raw) || raw.length !== 2) throw new WhiteboardError("invalid_command");
+  const [x, y] = raw as unknown[];
+  if (!Number.isInteger(x) || !Number.isInteger(y)) throw new WhiteboardError("invalid_command");
+  if ((x as number) < 0 || (x as number) > BOARD.width || (y as number) < 0 || (y as number) > BOARD.maxHeight) throw new WhiteboardError("invalid_command");
+  return [x as number, y as number];
+}
+
+// The one validation layer for a shape from the browser. The shape is
 // rebuilt field by field; the author is the signed-in actor, never the body.
 export function parseStroke(raw: unknown, authorId: string): Stroke {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new WhiteboardError("invalid_command");
   const input = raw as Record<string, unknown>;
   const id = typeof input.id === "string" && ID.test(input.id) ? input.id : null;
+  const tool = input.tool === undefined ? "pen" : WHITEBOARD_TOOLS.find((item) => item === input.tool);
   const color = WHITEBOARD_COLORS.find((item) => item === input.color);
   const width = Number.isInteger(input.width) && (input.width as number) >= WHITEBOARD_LIMITS.minWidth && (input.width as number) <= WHITEBOARD_LIMITS.maxWidth ? (input.width as number) : null;
-  if (!id || !color || !width || !Array.isArray(input.points)) throw new WhiteboardError("invalid_command");
-  if (input.points.length < 1 || input.points.length > WHITEBOARD_LIMITS.maxPoints) throw new WhiteboardError("invalid_command");
-  const points = input.points.map((point: unknown): BoardPoint => {
-    if (!Array.isArray(point) || point.length !== 2) throw new WhiteboardError("invalid_command");
-    const [x, y] = point as unknown[];
-    if (!Number.isInteger(x) || !Number.isInteger(y)) throw new WhiteboardError("invalid_command");
-    if ((x as number) < 0 || (x as number) > BOARD.width || (y as number) < 0 || (y as number) > BOARD.height) throw new WhiteboardError("invalid_command");
-    return [x as number, y as number];
-  });
-  const stroke: Stroke = { id, authorId, color, width, points };
+  if (!id || !tool || !color || !width || !Array.isArray(input.points)) throw new WhiteboardError("invalid_command");
+  const count = input.points.length;
+  const shapeOk = tool === "text" ? count === 1 : TWO_POINT_TOOLS.includes(tool) ? count === 2 : count >= 1 && count <= WHITEBOARD_LIMITS.maxPoints;
+  if (!shapeOk) throw new WhiteboardError("invalid_command");
+  const points = input.points.map(point);
+  let text: string | undefined;
+  if (tool === "text") {
+    text = typeof input.text === "string" ? input.text.trim() : "";
+    if (!text || text.length > WHITEBOARD_LIMITS.maxTextLength || !TEXT.test(text)) throw new WhiteboardError("invalid_command");
+  } else if (input.text !== undefined) {
+    throw new WhiteboardError("invalid_command");
+  }
+  const stroke: Stroke = { id, authorId, tool, color, width, points, ...(text ? { text } : {}) };
   if (new TextEncoder().encode(JSON.stringify({ seq: 0, kind: "stroke", stroke })).length > WHITEBOARD_LIMITS.maxOpBytes) throw new WhiteboardError("invalid_command");
   return stroke;
 }
