@@ -12,6 +12,31 @@ export type PortalContent = {
   translation?: PortalTranslation;
 };
 
+/**
+ * P6 — Portal CMS and its translation endpoint may not change categories; display names come
+ * from the Admin catalogue `localized` template. Carries the shared error code the HTTP layer
+ * maps to 422.
+ */
+export class CategoriesManagedInAdminError extends Error {
+  readonly code = "CATEGORIES_MANAGED_IN_ADMIN";
+  readonly status = 422;
+  constructor() {
+    super("Portal categories are managed in Admin.");
+    this.name = "CategoriesManagedInAdminError";
+  }
+}
+
+/** True when the payload leaves the managed category list exactly as stored (P6). */
+export function portalCategoriesUnchanged(candidate: unknown, managed: readonly PortalCategory[]): candidate is PortalCategory[] {
+  if (!Array.isArray(candidate) || candidate.length !== managed.length) return false;
+  return candidate.every((item, index) => {
+    const entry = item as Partial<PortalCategory> | null;
+    return Boolean(entry && entry.id === managed[index].id
+      && entry.labels?.["en-GB"] === managed[index].labels["en-GB"]
+      && entry.labels?.["zh-CN"] === managed[index].labels["zh-CN"]);
+  });
+}
+
 export const defaultBanners: Record<Locale, Banner[]> = {
   "en-GB": [
     { image: "/portal/auth-library.jpg", eyebrow: "LEARNING GUIDE", title: "Learn with curiosity.\nGrow with confidence.", text: "Learning Guide turns world-class cultural knowledge into a personal learning journey, in video or text, at your own pace.", cta: "Explore more", href: "/en-GB/portal/courses" },
@@ -89,14 +114,5 @@ export function applyTranslatedBanners(source: Banner[], copies: BannerCopy[], t
       text: copy.text.trim(),
       cta: copy.cta.trim()
     };
-  });
-}
-
-export function applyTranslatedCategories(categories: PortalCategory[], labels: string[], target: Locale): PortalCategory[] {
-  if (labels.length !== categories.length) throw new Error("Translation must cover every category.");
-  return categories.map((category, index) => {
-    const label = labels[index]?.trim();
-    if (!label || label.length > 80) throw new Error("Translation returned an invalid category label.");
-    return { ...category, labels: { ...category.labels, [target]: label } };
   });
 }

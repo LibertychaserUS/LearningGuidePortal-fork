@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyCourseDraft, AuthoringError } from "../../services/courseAuthoring";
 import type { ProductCourse } from "../../services/productStore";
-const course: ProductCourse = { id: "c1", slug: "same-slug", title: "Original", description: "", status: "draft", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", sections: [{ id: "s1", title: "One", lessons: [{ id: "l1", title: "Lesson", body: "Text", durationMinutes: 20, isPublic: false }] }] };
+const course: ProductCourse = { id: "c1", slug: "same-slug", title: "Original", description: "", categoryKey: null, status: "draft", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", sections: [{ id: "s1", title: "One", lessons: [{ id: "l1", title: "Lesson", body: "Text", durationMinutes: 20, isPublic: false }] }] };
 const input = () => ({ title: "Updated", description: "Updated description", expectedUpdatedAt: course.updatedAt, sections: structuredClone(course.sections) });
 test("summary trims, clears, preserves legacy omissions and rejects invalid values", () => {
   const existing = structuredClone(course);

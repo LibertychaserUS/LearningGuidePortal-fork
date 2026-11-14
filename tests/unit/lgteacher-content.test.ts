@@ -210,7 +210,7 @@ test("LGTeacher: the actual imported Horace lesson retains its audio and reflect
 });
 
 const course = (): ProductCourse => ({
-  id: courseId, slug: "lgteacher-course", title: "Course", description: "", status: "draft",
+  id: courseId, slug: "lgteacher-course", title: "Course", description: "", categoryKey: null, status: "draft",
   createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
   sections: [{ id: "section-1", title: "Section", lessons: [{ id: "lesson-1", title: "Lesson", body: "Legacy", durationMinutes: 10, isPublic: true, contents: fixture() }] }],
 });

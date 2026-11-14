@@ -12,7 +12,7 @@ export function stoicismCourse(createdAt: string): ProductCourse {
     slug: "stoicism",
     title: "Stoicism",
     description: "A guided introduction to judgement, impression and the Stoic distinction between what is up to us and what is not.",
-    category: "European Humanities",
+    categoryKey: "European Humanities",
     thumbnailPath: "/portal/course-book.jpg",
     status: "published",
     createdAt,

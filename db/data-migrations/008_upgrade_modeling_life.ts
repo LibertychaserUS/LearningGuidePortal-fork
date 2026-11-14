@@ -228,7 +228,7 @@ const sourceCourse = {
   "title": "Modeling life",
   "subtitle": "See how mathematics models life, from population growth to neural activity and disease. Simulate real biological systems with Euler’s method, no prior background in differential equations required.",
   "description": "Centred on dynamical systems and feedback, it shows how differential equations underpin homeostasis, population dynamics, neural activity and disease — the very competencies flagged as essential by HHMI/AAMC, and the NSF/AAAS Vision and Change initiative. Rather than mastering by-hand calculus techniques, students learn to simulate systems computationally using Euler's method, requiring no prior background in differential equations. Real examples from physiology, ecology, neuroscience and immunology anchor every concept, starting from day one with a predator–prey ecosystem. The result is a practical, intuitive fluency in dynamical thinking that prepares students for further study and research across the life sciences.",
-  "category": "Science",
+  "categoryKey": "Science",
   "cover": "/courses/modeling-life/cover.png",
   "thumbnailPath": "/courses/modeling-life/cover.png",
   "outcomes": [

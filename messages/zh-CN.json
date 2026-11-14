@@ -535,12 +535,6 @@
     "searchCourses": "搜索课程……",
     "search": "搜索",
     "allCategories": "全部课程",
-    "courseCategories": [
-      "全部",
-      "中国人文",
-      "欧洲人文",
-      "科学"
-    ],
     "category": "分类",
     "lessonCount": "个课程内容",
     "videoDuration": "视频",
@@ -1494,7 +1488,6 @@
     "text": "简介",
     "cta": "按钮文字",
     "href": "跳转地址",
-    "categories": "分类名称",
     "countries": "国家/地区（每行一个）",
     "support": "客服地址",
     "save": "保存修改",

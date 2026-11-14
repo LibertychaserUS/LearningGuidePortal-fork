@@ -44,7 +44,7 @@ test("Modeling life is a registered idempotent ORM course-only migration with po
   assert.equal(orm.table<ProductCourse>("courses").findById(course.id)?.title,"Operator-edited title");
   const conflictingCourse = {id:"foreign",slug:course.slug};
   assert.throws(()=>migration.apply(createMemoryOrm({tables:{courses:[conflictingCourse]}}),{now:createdAt,store:"memory",dryRun:true}),/identity conflict/);
-  assert.equal(course.category,"Science");assert.equal(course.title,"Modeling life");assert.equal(course.sections.flatMap(s=>s.lessons).length,2);
+  assert.equal(course.categoryKey,"Science");assert.equal(course.title,"Modeling life");assert.equal(course.sections.flatMap(s=>s.lessons).length,2);
   assert.equal(course.outcomes?.length,6);assert.equal(course.features?.length,6);
   assert.ok(course.subtitle?.startsWith("See how mathematics models life"));
 });

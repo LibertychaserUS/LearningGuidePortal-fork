@@ -31,7 +31,7 @@ test("public catalogue returns an explicit metadata allowlist, never author or l
   const body = await (await GET()).json();
   const result = body.courses.find((item: { id: string }) => item.id === course.id);
   assert.ok(result);
-  assert.deepEqual(Object.keys(result).sort(), ["id", "slug", "title", "description", "category", "thumbnailPath", "status", "createdAt", "updatedAt"].sort());
+  assert.deepEqual(Object.keys(result).sort(), ["id", "slug", "title", "description", "categoryKey", "thumbnailPath", "status", "createdAt", "updatedAt"].sort());
   assert.doesNotMatch(JSON.stringify(body), /PRIVATE MATERIAL|authorIds|archivedSections|contents/);
 });
 

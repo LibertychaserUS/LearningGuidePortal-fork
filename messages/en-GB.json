@@ -534,12 +534,6 @@
     "searchCourses": "Search for courses...",
     "search": "Search",
     "allCategories": "All Courses",
-    "courseCategories": [
-      "All",
-      "Chinese Humanities",
-      "European Humanities",
-      "Science"
-    ],
     "category": "Category",
     "lessonCount": "lessons",
     "videoDuration": "video",
@@ -1492,7 +1486,6 @@
     "text": "Description",
     "cta": "Button text",
     "href": "Destination URL",
-    "categories": "Category display names",
     "countries": "Countries (one per line)",
     "support": "Customer support URL",
     "save": "Save changes",

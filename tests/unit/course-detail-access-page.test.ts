@@ -18,6 +18,7 @@ test("course detail replaces purchase with the Figma included-plan card only for
     b.onLoad({ filter: /.*/, namespace: "context" }, args => ({ loader: "tsx", resolveDir: root, contents:
       args.path.endsWith("productStore") ? "export const getLessonBookmarks=(...a)=>globalThis.courseCardTest.store.getLessonBookmarks(...a);export const getCoursePage=(...a)=>globalThis.courseCardTest.store.getCoursePage(...a);export const getProductCourse=(...a)=>globalThis.courseCardTest.store.getProductCourse(...a);export const getCourseLearningMode=(...a)=>globalThis.courseCardTest.store.getCourseLearningMode(...a);export const listPlans=(...a)=>globalThis.courseCardTest.store.listPlans(...a);"
       : args.path.endsWith("productAuth") ? "export const currentProductUser=async()=>globalThis.courseCardTest.user;"
+      : args.path.endsWith("adminCatalogueCache") ? "export const getAdminCatalogue=async()=>[{name:'European Humanities',localized:{'en-GB':{name:'European Humanities'},'zh-CN':{name:'欧洲人文'}},sortOrder:0,children:[]}]"
       : args.path.endsWith("/s3") ? "export const signCourseMediaUrl=async value=>value?.startsWith('/courses/')?value:'/portal/course-study.jpg';"
       : args.path === "next/navigation" ? "export function redirect(href){throw new Error('redirect:'+href)}"
       : args.path === "next/image" ? "import React from 'react';export default function Image({unoptimized,...p}){return <img {...p}/>;}"

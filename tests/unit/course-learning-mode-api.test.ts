@@ -124,6 +124,7 @@ test("both locale Course entries prompt again after preview purchase and stop af
         : args.path.endsWith("productStore") ? "export const getLessonBookmarks=(...a)=>globalThis.splitModeEntry.store.getLessonBookmarks(...a);export const getCoursePage=(...a)=>globalThis.splitModeEntry.store.getCoursePage(...a);export const getProductCourse=(...a)=>globalThis.splitModeEntry.store.getProductCourse(...a);export const getCourseLearningMode=(...a)=>globalThis.splitModeEntry.store.getCourseLearningMode(...a);export const listPlans=(...a)=>globalThis.splitModeEntry.store.listPlans(...a);"
         : args.path.endsWith("productAuth") ? "export async function currentProductUser(){return globalThis.splitModeEntry.user}"
         : args.path.endsWith("/s3") ? "export async function signCourseMediaUrl(){return ''}"
+        : args.path.endsWith("adminCatalogueCache") ? "export async function getAdminCatalogue(){return []}"
         : args.path === "next/navigation" ? "export function redirect(url){throw new Error('redirect:'+url)}"
         : args.path.startsWith("next/") ? "export default 'mock-ui'"
         : `export const ${args.path.split("/").pop()}='${args.path.endsWith("CourseLearningModeDialog") ? "mode-dialog" : "mock-ui"}';`

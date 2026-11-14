@@ -23,9 +23,18 @@ test("five subscription designs retain bilingual responsive states, original ico
     b.onResolve({ filter: /^next\/(image|link|navigation)$/ }, args => ({ path: args.path, namespace: "mock" }));
     b.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ loader: "tsx", resolveDir: process.cwd(), contents: args.path === "next/navigation" ? "const router={refresh(){}};export const useRouter=()=>router,usePathname=()=>location.pathname,useSearchParams=()=>new URLSearchParams(location.search)" : args.path === "next/link" ? "import React from 'react';export default function Link({prefetch,...p}){return <a {...p}/>}" : "import React from 'react';export default function Image({unoptimized,...p}){return <img {...p}/>}" }));
   } }] });
-  const categories = defaultPortalContent.categories;
+  // C1/P5: the four ACTIVE Admin catalogue categories (stable name + localized),
+  // not the retired Portal CMS three-value list. Society is a first-class card.
+  const catalogue = [
+    { name: "Science", labels: { "en-GB": "Science", "zh-CN": "科学" } },
+    { name: "Chinese Humanities", labels: { "en-GB": "Chinese Humanities", "zh-CN": "中国人文" } },
+    { name: "European Humanities", labels: { "en-GB": "European Humanities", "zh-CN": "欧洲人文" } },
+    { name: "Society", labels: { "en-GB": "Society", "zh-CN": "社会" } }
+  ] as const;
+  const categories = catalogue.map(item => ({ id: item.name, labels: { ...item.labels } }));
+  const labelOf = (name: string, locale: "en-GB" | "zh-CN") => catalogue.find(item => item.name === name)!.labels[locale];
   const plans: ProductPlan[] = ([6, 12] as const).flatMap(termMonths => [{ id: `everything-${termMonths}`, courseId: "*", name: "Everything", scope: "everything", scopeId: "*", termMonths, device: "pc", amountMinor: termMonths === 6 ? 9900 : 19800, currency: "usd", aiPoints: termMonths === 6 ? 1500 : 3100 }, ...categories.map(category => ({ id: `${category.id}-${termMonths}`, courseId: "*", name: category.id, scope: "category" as const, scopeId: category.id, termMonths, device: "pc" as const, amountMinor: termMonths === 6 ? 3900 : 7800, currency: "usd" as const, aiPoints: termMonths === 6 ? 500 : 1100 }))]);
-  const courseTitles = [{ category: "Chinese Humanities", title: "Chinese History" }, { category: "Chinese Humanities", title: "Chinese Literature" }, { category: "European Humanities", title: "The Art of Seeing" }, { category: "European Humanities", title: "Renaissance Thought" }, { category: "Science", title: "Physics" }, { category: "Science", title: "Chemistry" }, ...Array.from({length:8},(_,index)=>({category:"European Humanities",title:`European Art and Philosophy ${index+1}`}))];
+  const courseTitles = [{ category: "Chinese Humanities", title: "Chinese History" }, { category: "Chinese Humanities", title: "Chinese Literature" }, { category: "European Humanities", title: "The Art of Seeing" }, { category: "European Humanities", title: "Renaissance Thought" }, { category: "Science", title: "Physics" }, { category: "Science", title: "Chemistry" }, { category: "Society", title: "Civic Life" }, ...Array.from({length:8},(_,index)=>({category:"European Humanities",title:`European Art and Philosophy ${index+1}`}))];
   const subscription = (scopeId: string): ProductSubscription => ({ id: `sub-${scopeId}`, userId: "owner", planId: `${scopeId}-6`, courseId: "*", scope: scopeId === "everything" ? "everything" : "category", scopeId, device: "pc", stripeSubscriptionId: "sub_stripe", stripeCustomerId: "cus_owner", source: "purchase", state: "active", cancelAtPeriodEnd: false, validFrom: "2026-08-01T00:00:00Z", validTo: "2027-01-31T00:00:00Z" });
   const fixtures = [[], [subscription("Chinese Humanities")], [subscription("Chinese Humanities"), subscription("Science")], categories.map(c => subscription(c.id)), [subscription("everything")]];
   const browser = await chromium.launch();
@@ -49,7 +58,7 @@ test("five subscription designs retain bilingual responsive states, original ico
     for (const weight of [400, 500, 600, 700]) await page.addStyleTag({ content: `@font-face{font-family:Inter;src:url(data:font/woff2;base64,${(await readFile(`node_modules/@fontsource/inter/files/inter-latin-${weight}-normal.woff2`)).toString("base64")});font-weight:${weight}}` });
     await page.addScriptTag({ content: bundle.outputFiles[0].text });
     const footer = renderToStaticMarkup(await Footer({ locale }));
-    const propsFor = (index: number) => { const selection = buildSubscriptionSelection(fixtures[index], plans, "owner", Date.parse("2026-10-13T00:00:00Z")); return { locale, key: `${index}`, selection, categories, courseTitles, footer, plans: plans.map(p => ({ ...p, alreadySubscribed: selection.kind === "everything" || selection.ownedCategoryIds.includes(p.scopeId || "") })) }; };
+    const propsFor = (index: number) => { const selection = buildSubscriptionSelection(fixtures[index], plans, "owner", Date.parse("2026-10-13T00:00:00Z"), { activeCategoryKeys: categories.map(category => category.id) }); return { locale, key: `${index}`, selection, categories, courseTitles, footer, plans: plans.map(p => ({ ...p, alreadySubscribed: selection.kind === "everything" || selection.ownedCategoryIds.includes(p.scopeId || "") })) }; };
     const mount = (index: number) => page.evaluate(p => (window as any).mount(p), propsFor(index));
     for (let index = 0; index < fixtures.length; index++) {
       await mount(index); const kind = propsFor(index).selection.kind;
@@ -84,10 +93,36 @@ test("five subscription designs retain bilingual responsive states, original ico
         // Reset the plan and let viewport-dependent styles settle before the existing fixed-layout checks.
         await mount(index);
         await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+        // P5: the page renders the Admin catalogue's four ACTIVE categories and
+        // Society has a purchasable plan (previously the CMS three-value list
+        // made Society unpurchasable because it never rendered).
+        const categoryButtons = page.locator(".pricing-design-card--category .pricing-category-switch button");
+        assert.equal(await categoryButtons.count(), 4, `${locale}: all four ACTIVE Admin categories render as category options`);
+        assert.deepEqual(await categoryButtons.allTextContents(), catalogue.map(item => item.labels[locale]));
+        const society = page.locator(".pricing-design-card--category .pricing-category-switch button", { hasText: labelOf("Society", locale) });
+        assert.equal(await society.isEnabled(), true, `${locale}: Society has a purchasable category plan`);
+        await society.click();
+        const societyAction = page.locator(".pricing-design-card--category .purchase-actions button");
+        await societyAction.waitFor({ state: "visible" });
+        assert.ok((await societyAction.textContent())?.includes(labelOf("Society", locale)), `${locale}: the purchase action names Society`);
+        assert.equal(await societyAction.isEnabled(), true, `${locale}: the Society plan can be purchased`);
       }
       if (index === 1) { await page.locator(".pricing-upgrade-action button").waitFor({ state: "visible" }); await page.waitForFunction(() => !document.querySelector<HTMLButtonElement>(".pricing-upgrade-action button")?.disabled); assert.equal(await page.locator(".pricing-upgrade-action button").isEnabled(), true); assert.equal(await page.locator(".pricing-upgrade-card .pricing-card-price strong").textContent(), "US$35.86"); }
-      if (index === 2) { assert.equal(await page.locator(".pricing-upgrade-action").count(), 0); assert.equal(await page.locator(".pricing-design-card").count(), 1); assert.equal(await page.locator(".pricing-category-switch button").count(), 1); }
+      if (index === 1) {
+        // owned/remaining use the same stable keys and the same Admin catalogue as the backend.
+        assert.deepEqual(await page.locator(".pricing-owned-notice .pricing-owned-chip").allTextContents(), [labelOf("Chinese Humanities", locale)], `${locale}: only the owned category is chipped`);
+        assert.deepEqual(await page.locator(".pricing-design-card--category .pricing-category-switch button").allTextContents(), [labelOf("Science", locale), labelOf("European Humanities", locale), labelOf("Society", locale)], `${locale}: the three remaining categories stay selectable, including Society`);
+        assert.equal(await page.locator(".pricing-upgrade-card .pricing-saving").textContent(), copy.subscriptionSelection.extraCategories.replace("{count}", "3"), `${locale}: three of four categories remain to unlock`);
+      }
+      if (index === 2) { assert.equal(await page.locator(".pricing-upgrade-action").count(), 0); assert.equal(await page.locator(".pricing-design-card").count(), 1); assert.equal(await page.locator(".pricing-category-switch button").count(), 2); }
       if (index >= 3) { assert.equal(await page.locator(".pricing-design-card").count(), 0); assert.equal(await page.locator(".pricing-owned-benefits").count(), 1); assert.equal(await page.locator(".pricing-owned-status > a").getAttribute("href"), `/${locale}/account/my-learning/subscription`); }
+      if (index === 3) {
+        assert.equal((await page.locator(".pricing-owned-benefits strong").first().textContent())?.replace(/\s+/g, " ").trim(), "4 / 4", `${locale}: all four Admin categories count as owned`);
+        const chips = await page.locator(".pricing-owned-chips .pricing-owned-chip").allTextContents();
+        assert.equal(chips.length, 4, `${locale}: every owned category is chipped`);
+        for (const item of catalogue) assert.ok(chips.some(text => text.includes(item.labels[locale])), `${locale}: ${item.name} is owned`);
+      }
+      if (index === 4) assert.ok((await page.locator(".pricing-owned-copy p").first().textContent())?.includes(copy.subscriptionSelection.coverage.replace("{count}", "4")), `${locale}: Everything covers all four Admin categories`);
       if (index === 1) {
         const upgrade = page.locator('.pricing-upgrade-card'), category = page.locator('.pricing-design-card--category');
         const assertActions=async(selected:"everything"|"category")=>{
@@ -132,7 +167,12 @@ test("five subscription designs retain bilingual responsive states, original ico
         const categoryCard=page.locator('.pricing-design-card--category');
         if(await categoryCard.count()) {
           const courseList=categoryCard.locator('.pricing-card-course-list > p');
-          const summaryBox=()=>categoryCard.locator('.pricing-card-course-list').evaluate(e=>{const r=e.getBoundingClientRect();return {y:r.y+scrollY,height:r.height};});
+          // Measure the Course area relative to its own includes block: with the
+          // four Admin categories the card heading ("Add {category}") legitimately
+          // wraps differently for short (Society) and long (European Humanities)
+          // localized names at narrow widths, so absolute page position is not the
+          // invariant — the Course area height and its offset inside the card are.
+          const summaryBox=()=>categoryCard.locator('.pricing-card-includes').evaluate(e=>{const r=e.getBoundingClientRect();const c=e.querySelector('.pricing-card-course-list')!.getBoundingClientRect();return {y:c.y-r.y,height:c.height};});
           const before=await summaryBox();
           for(const button of await categoryCard.locator('.pricing-category-switch button:enabled').all()) {
             await button.click();

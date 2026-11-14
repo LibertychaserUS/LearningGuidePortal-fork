@@ -11,7 +11,7 @@ export function sampleLearningOverview(courses: ProductCourse[]): LearningOvervi
   const catalogue = courses.filter(course => course.status === "published");
   const identity = (course: ProductCourse): OverviewCourseIdentity => ({
     courseId: course.id, slug: course.slug, title: course.title,
-    category: course.categoryId || course.category || "", cover: course.cover || course.thumbnailPath || null,
+    category: course.categoryKey ?? "", cover: course.cover || course.thumbnailPath || null,
   });
   const progressSamples = [46, 100, 25, 72, 0];
   return {
@@ -33,11 +33,11 @@ export async function getLearningOverviewDisplay(userId: string): Promise<Learni
       const record = overview.courses.find(item => item.courseId === course.id);
       const lessons = course.sections.flatMap(section => section.lessons);
       const index = lessons.findIndex(lesson => lesson.id === record?.currentLessonId);
-      return { courseId:course.id,slug:course.slug,title:course.title,category:course.categoryId || course.category || "",cover:course.cover || course.thumbnailPath || null,
+      return { courseId:course.id,slug:course.slug,title:course.title,category:course.categoryKey ?? "",cover:course.cover || course.thumbnailPath || null,
         kind:"learning",mode:record?.mode || availableCourseLearningModes(course)[0] || "text",progress:record?.progress || 0,
         currentLesson:index >= 0 ? index + 1 : null,currentLessonId:record?.currentLessonId || lessons[0]?.id || null,currentContentId:record?.currentContentId || null };
     }),
-    previewed: courses.map(course => ({courseId:course.id,slug:course.slug,title:course.title,category:course.categoryId || course.category || "",cover:course.cover || course.thumbnailPath || null,kind:"preview"})),
+    previewed: courses.map(course => ({courseId:course.id,slug:course.slug,title:course.title,category:course.categoryKey ?? "",cover:course.cover || course.thumbnailPath || null,kind:"preview"})),
   };
   const covers = new Map(await Promise.all(display.learning.map(async course => [course.courseId, await signCourseMediaUrl(course.cover || "")] as const)));
   return {

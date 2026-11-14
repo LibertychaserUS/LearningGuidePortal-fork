@@ -85,7 +85,7 @@ before(async () => {
     { id: "api-m5", email: "m5@example.test", passwordHash: null, nickname: "Cleo", locale: "en-GB", status: "active", emailVerifiedAt: now, createdAt: now, role: "student" },
     { id: "api-m6", email: "m6@example.test", passwordHash: null, nickname: "Dan", locale: "en-GB", status: "active", emailVerifiedAt: now, createdAt: now, role: "student" }
   );
-  data.courses.push({ id: "api-course", slug: "german-history", title: "German History", description: "Course", status: "published", sections: [], createdAt: now, updatedAt: now });
+  data.courses.push({ id: "api-course", slug: "german-history", title: "German History", description: "Course", categoryKey: null, status: "published", sections: [], createdAt: now, updatedAt: now });
   data.entitlements.push(
     { id: "api-access", userId: "api-host", courseId: "api-course", state: "active", source: "purchase", validTo: later, scope: "course", scopeId: "api-course", device: "pc" },
     { id: "api-access-m1", userId: "api-m1", courseId: "api-course", state: "active", source: "purchase", validTo: later, scope: "course", scopeId: "api-course", device: "pc" },

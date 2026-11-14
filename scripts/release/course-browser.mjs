@@ -80,7 +80,7 @@ export function validateBrowserInput({ origin, manifest, credentials, outputDir 
   const text = value => typeof value === 'string' && value.trim().length > 0;
   for (const [ci, course] of manifest.courses.entries()) {
     const prefix = `manifest_course_${ci + 1}`;
-    if (!course || !text(course.id) || !text(course.slug) || !text(course.title) || !text(course.category) ||
+    if (!course || !text(course.id) || !text(course.slug) || !text(course.title) || !text(course.categoryKey) ||
       !(course.cover === null || typeof course.cover === 'string') || !Array.isArray(course.sections) || !course.sections.length) {
       failures.push(`${prefix}_invalid`); continue;
     }
@@ -482,7 +482,7 @@ export async function verifyCourseBrowser({ origin, manifest, credentials, outpu
               requireCheck(normaliseText(await card.locator('h3').innerText()) === normaliseText(course.title), 'catalogue_title_mismatch');
               const categoryLink = page.locator('.portal-category-filter a');
               const categories = await categoryLink.evaluateAll(elements => elements.map(element => ({ id: new URL(element.href).searchParams.get('category'), title: element.textContent })));
-              const category = categories.find(item => item.id === course.category)?.title;
+              const category = categories.find(item => item.id === course.categoryKey)?.title;
               requireCheck(!!category && normaliseText(await card.locator('.portal-course-category').innerText()) === normaliseText(category), 'catalogue_category_mismatch');
               const image = card.locator('img.course-thumbnail');
               requireCheck(await image.count() === 1, 'catalogue_cover_missing_or_duplicate');
@@ -529,7 +529,7 @@ export async function verifyCourseBrowser({ origin, manifest, credentials, outpu
             await assertPage(page, route, origin, courseDeadline);
             requireCheck(await page.locator('main').getAttribute('data-page-state') === 'available', 'course_not_available');
             requireCheck(normaliseText(await page.locator('h1[data-course-title]').innerText()) === normaliseText(course.title), 'course_title_mismatch');
-            requireCheck(await page.locator('[data-course-track]').getAttribute('data-course-track') === course.category, 'course_category_mismatch');
+            requireCheck(await page.locator('[data-course-track]').getAttribute('data-course-track') === course.categoryKey, 'course_category_mismatch');
             const rows = page.locator('[data-syllabus] [data-lesson-id]');
             requireCheck(await rows.count() === lessonsOf(course).length, 'syllabus_lesson_count_mismatch');
             for (const lesson of lessonsOf(course)) {

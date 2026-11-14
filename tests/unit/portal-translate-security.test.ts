@@ -50,7 +50,8 @@ test("translation consumes delayed provider bytes before aborting the request", 
   assert.equal(completed, true);
   assert.equal(prematureAbort, false);
   assert.equal(translated.skipped, false);
-  assert.deepEqual(translated.content.categories.map(category => category.labels["zh-CN"]), payload().categories);
+  // P6: the translation endpoint never owns category labels; the managed list is unchanged.
+  assert.deepEqual(translated.content.categories, defaultPortalContent.categories);
   assert.deepEqual(input, snapshot);
   assert.equal((await translatePortalContent(translated.content, "en-GB")).skipped, true);
   assert.equal(calls, 1);
@@ -58,7 +59,7 @@ test("translation consumes delayed provider bytes before aborting the request", 
 
 test("malformed model shapes fail without marking a translation current", async () => {
   const valid = payload();
-  for (const bad of [null, [], "text", {}, { ...valid, categories: "XYZ" }, { ...valid, categories: { 0: "a", 1: "b", 2: "c", length: 3 } }, { ...valid, categories: ["one", {}, "three"] }, { ...valid, categories: ["one", " ", "three"] }, { ...valid, categories: ["x".repeat(81), "two", "three"] }, { ...valid, categories: ["one"] }, { ...valid, banners: { ...valid.banners, length: 3 } }, { ...valid, banners: valid.banners.slice(0, 2) }, { ...valid, banners: [null, ...valid.banners.slice(1)] }, { ...valid, banners: [{ ...valid.banners[0], title: 123 }, ...valid.banners.slice(1)] }]) {
+  for (const bad of [null, [], "text", {}, { ...valid, banners: { ...valid.banners, length: 3 } }, { ...valid, banners: valid.banners.slice(0, 2) }, { ...valid, banners: [null, ...valid.banners.slice(1)] }, { ...valid, banners: [{ ...valid.banners[0], title: 123 }, ...valid.banners.slice(1)] }]) {
     globalThis.fetch = async () => Response.json(completion(bad));
     const input = source(), snapshot = structuredClone(input);
     await assert.rejects(translatePortalContent(input, "en-GB"), /Translation/);

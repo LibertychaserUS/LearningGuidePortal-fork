@@ -5,7 +5,7 @@ import type { PaymentReview, OrderAction } from "@/contracts/order-management";
 import { entitledStudyHistory } from "@/lib/entitledStudyHistory";
 import { ProfileError } from "@/contracts/profile";
 import { SubscriptionManagementError, type SubscriptionChange, type SubscriptionRenewalChange } from "@/contracts/subscription-management";
-import { buildSubscriptionSelection, subscriptionCoverage } from "./subscriptionSelection";
+import { buildSubscriptionSelection, subscriptionCoverage, activeCatalogueKeys } from "./subscriptionSelection";
 import { withPlanAiPoints } from "./planAiPoints";
 import { availableCourseLearningModes } from "@/lib/courseLearningMode";
 import { courseModePosition } from "@/lib/courseModePosition";
@@ -30,15 +30,17 @@ import { query } from "./persistence/db";
 import { hydrateOrmFromSql } from "./ormRuntime";
 import type { SocialUserInput } from "@/contracts/wechat";
 import { isProductionEnvironment, paymentMode } from "./runtimeConfig";
-import { defaultPortalContent, withSharedBannerImages, type PortalContent, type PortalTranslation } from "@/lib/portalContent";
+import { defaultPortalContent, withSharedBannerImages, CategoriesManagedInAdminError, portalCategoriesUnchanged, type PortalContent, type PortalTranslation } from "@/lib/portalContent";
 import {
   accessStateFromSubscriptions,
   overviewEmptyState,
   resolveOverviewCard,
   uniqueOpenedLearningPointIds,
 } from "@/lib/myLearningOverview";
-import { buildCoursePage, emptyFailedCoursePage, type CoursePage } from "@/lib/coursePage";
-import type { CourseMetadata, CatalogueEntry, CatalogueInput, CourseListQuery } from "@/contracts/course-authoring";
+import { buildCoursePage, emptyFailedCoursePage, normaliseCategoryKey, resolveCourseCategory, type CoursePage } from "@/lib/coursePage";
+import type { CourseMetadata, CatalogueInput, CourseListQuery } from "@/contracts/course-authoring";
+import { CatalogueManagedInAdminError } from "@/contracts/course-authoring";
+import { getAdminCatalogue, getAdminCatalogueSnapshot } from "./adminCatalogueCache";
 import type { LessonContent } from "@/contracts/lesson-content";
 import type { LessonResources } from "@/contracts/lesson-resources";
 import type { HighestCourseProgress, KnowledgePositions } from "@/contracts/knowledge-progress";
@@ -103,7 +105,12 @@ export type ProductLesson = LessonResources & {
 };
 
 export type ProductSection = { id: string; title: string; lessons: ProductLesson[]; archivedAt?: string };
-export type ProductCourse = CourseMetadata & {
+/**
+ * P3/I7: a Portal course carries exactly one category membership as a stable key. The retired
+ * `category` string and the Portal `categoryId`/`subjectId` pair are gone; display names come
+ * from the Admin catalogue. `null` means unclassified (valid, but covered by no category plan).
+ */
+export type ProductCourse = Omit<CourseMetadata, "categoryId" | "subjectId"> & {
   authorIds?: string[];
   archivedSections?: ProductSection[];
   archivedAt?: string | null;
@@ -111,7 +118,7 @@ export type ProductCourse = CourseMetadata & {
   slug: string;
   title: string;
   description: string;
-  category?: "Chinese Humanities" | "European Humanities" | "Science";
+  categoryKey: string | null;
   thumbnailPath?: string | null;
   status: "draft" | "published" | "archived";
   sections: ProductSection[];
@@ -293,8 +300,19 @@ export type ProductPaymentSettings = {
   updatedAt: string | null;
 };
 
+/**
+ * M8 report: which legacy course categories could not be matched to an Admin ACTIVE category
+ * during the schema-v2 migration. Unmatched courses stay unclassified (`categoryKey: null`).
+ */
+export type CategoryMigrationEntry = {
+  courseId: string;
+  legacyCategory: string | null;
+  categoryKey: string | null;
+  reason: "matched" | "unmatched" | "unclassified";
+};
+
 export type ProductData = {
-  catalogue?: CatalogueEntry[];
+  categoryMigrationReport?: CategoryMigrationEntry[];
   catalogueMigrations?: string[];
   dataMigrations?: string[];
   authoringActivities?: Array<{ id: string; actorId: string; courseId?: string; action: string; createdAt: string; targetUserId?: string }>;
@@ -360,7 +378,7 @@ function defaultCourse(): ProductCourse {
     slug: "epicureanism",
     title: "Epicureanism",
     description: "A guided introduction to pleasure, desire, friendship and the Epicurean argument about death.",
-    category: "European Humanities",
+    categoryKey: "European Humanities",
     thumbnailPath: null,
     status: "published",
     createdAt: time,
@@ -449,8 +467,16 @@ function defaultPaymentSettings(): ProductPaymentSettings {
 
 type NormalisedPlanScope = { scope: "course" | "category" | "everything"; scopeId: string | null };
 
+/** P3/P5: the one stable-key comparison (same canonical form as the catalogue resolver). */
+function categoryKeyMatches(scopeId: string | null | undefined, categoryKey: string | null | undefined) {
+  const scope = normaliseCategoryKey(scopeId);
+  const course = normaliseCategoryKey(categoryKey);
+  return Boolean(scope && course && scope === course);
+}
+
 function planScope(plan: ProductPlan): NormalisedPlanScope {
-  if (plan.scope === "category") return { scope: "category", scopeId: plan.scopeId || plan.category || null };
+  // P5: `scopeId` is the category stable key; `category` is a display label only.
+  if (plan.scope === "category") return { scope: "category", scopeId: plan.scopeId || null };
   if (plan.scope === "everything" || plan.courseId === "*") return { scope: "everything", scopeId: "*" };
   return { scope: "course", scopeId: plan.scopeId || plan.courseId };
 }
@@ -458,14 +484,14 @@ function planScope(plan: ProductPlan): NormalisedPlanScope {
 function planCoversCourse(plan: ProductPlan, course: ProductCourse) {
   const scope = planScope(plan);
   if (scope.scope === "everything") return true;
-  if (scope.scope === "category") return scope.scopeId === course.category;
+  if (scope.scope === "category") return categoryKeyMatches(scope.scopeId, course.categoryKey);
   return scope.scopeId === course.id;
 }
 
 function entitlementCoversCourse(entitlement: Pick<ProductEntitlement, "courseId" | "scope" | "scopeId">, course: ProductCourse) {
   const scope = entitlement.scope || (entitlement.courseId === "*" ? "everything" : "course");
   if (scope === "everything") return true;
-  if (scope === "category") return (entitlement.scopeId || null) === course.category;
+  if (scope === "category") return categoryKeyMatches(entitlement.scopeId, course.categoryKey);
   return (entitlement.scopeId || entitlement.courseId) === course.id;
 }
 
@@ -528,9 +554,9 @@ function alreadySubscribedToPlan(data: ProductData, userId: string, plan: Produc
     if (owned.scope === "everything" && target.scope === "category") return true;
     if ((subscription.device || originalPlan?.device || "pc") !== plan.device) return false;
     if (owned.scope === "everything") return true;
-    if (owned.scope === target.scope && owned.scopeId === target.scopeId) return true;
+    if (owned.scope === target.scope && (owned.scope === "category" ? categoryKeyMatches(owned.scopeId, target.scopeId) : owned.scopeId === target.scopeId)) return true;
     if (owned.scope === "category" && target.scope === "course") {
-      return data.courses.some(course => course.id === target.scopeId && course.category === owned.scopeId);
+      return data.courses.some(course => course.id === target.scopeId && categoryKeyMatches(owned.scopeId, course.categoryKey));
     }
     return false;
   });
@@ -550,6 +576,46 @@ async function saveData(data: ProductData) {
 
 let editQueue = Promise.resolve();
 
+const categoryMigrationNotices = new Set<string>();
+
+/**
+ * M8 — Portal product schema v2: `category` + `categoryId` collapse into one stable `categoryKey`.
+ *
+ * The legacy `category` string is matched (trim, case-insensitive) against Admin ACTIVE category
+ * stable names; an unmatched value becomes `null` and is reported. `categoryId`, `subjectId` and
+ * the retired `data.catalogue` are removed from the aggregate.
+ */
+async function migrateLegacyCourseCategories(data: ProductData) {
+  delete (data as { catalogue?: unknown }).catalogue;
+  const records = data.courses.map((course) => ({ course, record: course as unknown as Record<string, unknown> }));
+  const legacyValues = new Map<ProductCourse, string | null>();
+  for (const { course, record } of records) {
+    legacyValues.set(course, typeof record.category === "string" ? record.category : null);
+    // The retired fields never survive a read, whether or not the course already has a key.
+    delete record.category;
+    delete record.categoryId;
+    delete record.subjectId;
+  }
+  const pending = records.filter(({ course }) => !Object.hasOwn(course, "categoryKey"));
+  if (!pending.length) return;
+  const catalogue = await getAdminCatalogue();
+  const report = pending.map(({ course }): CategoryMigrationEntry => {
+    const legacyCategory = legacyValues.get(course) ?? null;
+    // P3/M8: the legacy string is matched as a stable key through the one catalogue resolver.
+    const categoryKey = legacyCategory ? resolveCourseCategory({ categoryKey: legacyCategory }, catalogue)?.name ?? null : null;
+    course.categoryKey = categoryKey;
+    return { courseId: course.id, legacyCategory, categoryKey, reason: categoryKey ? "matched" : legacyCategory ? "unmatched" : "unclassified" };
+  });
+  data.categoryMigrationReport = [...(data.categoryMigrationReport ?? []), ...report];
+  for (const item of report) {
+    if (item.reason !== "unmatched") continue;
+    const notice = `${item.courseId}:${item.legacyCategory}`;
+    if (categoryMigrationNotices.has(notice)) continue;
+    categoryMigrationNotices.add(notice);
+    console.warn(JSON.stringify({ type: "portal-category-migration", event: "unmatched", courseId: item.courseId, legacyCategory: item.legacyCategory }));
+  }
+}
+
 export async function readProductAggregate() {
   const current = await readJson<ProductData | null>(productFile(), null);
   if (current?.version === 1) {
@@ -563,7 +629,7 @@ export async function readProductAggregate() {
     current.catalogueMigrations ||= [];
     current.dataMigrations ||= [];
     current.users.forEach((user) => { user.areasOfInterest ||= []; });
-    current.courses.forEach((course) => { course.category ||= "European Humanities"; course.thumbnailPath ??= null; });
+    current.courses.forEach((course) => { course.thumbnailPath ??= null; });
     current.plans.forEach((plan) => {
       if (plan.id.startsWith("epicureanism-pc-")) {
         plan.scope = "course";
@@ -575,7 +641,8 @@ export async function readProductAggregate() {
         plan.scope ||= "course";
         plan.scopeId ||= plan.courseId;
       }
-      if (plan.scope === "category") plan.scopeId ||= plan.category || "European Humanities";
+      // P5: legacy plans stored their stable category key in `category`; `scopeId` is the key.
+      if (plan.scope === "category") plan.scopeId ||= plan.category || null;
       plan.category ??= plan.scope === "category" ? plan.scopeId : null;
       plan.trialEligible ??= plan.device === "pc";
       plan.aiPoints ??= plan.device === "mobile" ? 0 : plan.scope === "everything" ? 10000 : 1000;
@@ -589,6 +656,8 @@ export async function readProductAggregate() {
         query: async (text, values) => query(text, values),
       });
     }
+    // M8 runs after SQL hydration so rows written before schema v2 are migrated too.
+    await migrateLegacyCourseCategories(current);
     return current;
   }
   const seeded = defaultData();
@@ -599,6 +668,8 @@ export async function readProductAggregate() {
 export async function ensureProductData() {
   const current = await readProductAggregate();
   await applyDataMigrations(current);
+  // Rows added or rewritten by data migrations also leave the aggregate in schema v2.
+  await migrateLegacyCourseCategories(current);
   return current;
 }
 
@@ -777,9 +848,11 @@ export async function savePortalContent(value: unknown): Promise<PortalContent> 
       }
     }
   }
-  const expected = defaultPortalContent.categories.map((item) => item.id);
-  if (!Array.isArray(content.categories) || content.categories.length !== 3 || new Set(content.categories.map((item) => item.id)).size !== 3 ||
-      content.categories.some((item) => !expected.includes(item.id) || ["en-GB", "zh-CN"].some((locale) => typeof item.labels?.[locale as Locale] !== "string" || !item.labels[locale as Locale].trim() || item.labels[locale as Locale].length > 80))) throw new Error("Provide one translated label for each supported category.");
+  // P6: categories are managed in Admin. The stored list is the baseline; the payload may omit
+  // the list (the editor no longer owns categories) but may never change it.
+  const managed = (await ensureProductData()).portalContent?.categories ?? defaultPortalContent.categories;
+  const categories = content.categories === undefined ? managed : content.categories;
+  if (!portalCategoriesUnchanged(categories, managed)) throw new CategoriesManagedInAdminError();
   if (!Array.isArray(content.countries) || !content.countries.length || content.countries.length > 300 || content.countries.some((item) => typeof item !== "string" || !item.trim() || item.length > 80)) throw new Error("Provide a valid country list.");
   if (!validUrl(content.supportUrl, true)) throw new Error("Support URL must be a relative path or HTTPS URL.");
   const translation: PortalTranslation | undefined = content.translation
@@ -791,7 +864,7 @@ export async function savePortalContent(value: unknown): Promise<PortalContent> 
     : undefined;
   const normalised = withSharedBannerImages(content);
   return editData((data) => {
-    data.portalContent = { banners: normalised.banners, categories: content.categories, countries: [...new Set(content.countries)], supportUrl: content.supportUrl, ...(translation ? { translation } : {}) };
+    data.portalContent = { banners: normalised.banners, categories, countries: [...new Set(content.countries)], supportUrl: content.supportUrl, ...(translation ? { translation } : {}) };
     return data.portalContent;
   });
 }
@@ -1332,8 +1405,13 @@ export async function listPlansForPurchase(userId?: string, courseId?: string): 
 }
 
 export async function getSubscriptionSelection(userId?: string) {
-  const data = await ensureProductData();
-  return buildSubscriptionSelection(data.subscriptions, data.plans, userId || "");
+  // P5: "all categories" is judged against every ACTIVE Admin catalogue category.
+  // P2: when the catalogue cold-starts on the seed, the ACTIVE set is unknown — never claim "all".
+  const [data, catalogue] = await Promise.all([ensureProductData(), getAdminCatalogueSnapshot()]);
+  return buildSubscriptionSelection(data.subscriptions, data.plans, userId || "", Date.now(), {
+    activeCategoryKeys: activeCatalogueKeys(catalogue.tree),
+    activeCatalogueSource: catalogue.source,
+  });
 }
 
 export async function syncSandboxStripePlans(plans: ProductPlan[]) {
@@ -2175,7 +2253,8 @@ export async function getLearningOverview(userId: string) {
         currentLessonTitle: lessons.find((lesson) => lesson.id === currentLessonId)?.title || null,
         lessonCount: lessons.length,
         courseDescription: course?.description || "",
-        courseCategory: course?.category || "European Humanities",
+        // P3/P4: the overview carries the stable key; display names come from the catalogue resolver.
+        courseCategory: course?.categoryKey ?? "",
         totalMinutes: lessons.reduce((total, lesson) => total + lesson.durationMinutes, 0),
         courseStatus: course?.status || "draft",
         totalSeconds: record?.totalSeconds || 0,
@@ -2586,12 +2665,17 @@ export async function markNotificationRead(userId: string, notificationId: strin
   return setNotificationRead(userId, notificationId, true);
 }
 
+/** P7: the Portal backoffice may not write course category membership; the dropdown is read-only. */
+function assertNoCategoryWrite(input: CourseMetadata & { category?: unknown }) {
+  if (Object.hasOwn(input, "categoryId") || Object.hasOwn(input, "subjectId") || Object.hasOwn(input, "category")) throw new CategoriesManagedInAdminError();
+}
+
 export async function saveCourseDraftForOperator(operatorId: string, courseId: string, input: import("@/contracts/course-authoring").CourseDraftInput) {
   return editData(async data => {
     const course = managedCourse(data, operatorId, courseId);
     const index = data.courses.indexOf(course);
+    assertNoCategoryWrite(input);
     const updated = applyCourseDraft(course, input);
-    validateCatalogueSelection(data, updated, course);
     const { assertCourseMediaReferences } = await import("./courseMedia");
     try {
       await assertCourseMediaReferences(updated);
@@ -2616,13 +2700,6 @@ function authoringActivity(data: ProductData, actorId: string, action: string, c
   (data.authoringActivities ||= []).push({ id: id("authoring"), actorId, action, courseId, targetUserId, createdAt: now() });
 }
 
-function validateCatalogueSelection(data: ProductData, course: CourseMetadata, previous?: CourseMetadata) {
-  const category = data.catalogue?.find(item => item.id === course.categoryId && item.parentId === null);
-  const subject = data.catalogue?.find(item => item.id === course.subjectId && item.parentId === course.categoryId);
-  if (course.categoryId && (!category || category.status !== "active" && course.categoryId !== previous?.categoryId)) throw new AuthoringError("invalid");
-  if (course.subjectId && (!subject || subject.status !== "active" && course.subjectId !== previous?.subjectId)) throw new AuthoringError("invalid");
-}
-
 export async function listCoursesForAuthor(actorId: string, query: CourseListQuery = {}) {
   const data = await ensureProductData();
   const actor = data.users.find(user => user.id === actorId);
@@ -2634,32 +2711,19 @@ export async function getCourseForAuthor(actorId: string, courseId: string) {
   return managedCourse(await ensureProductData(), actorId, courseId);
 }
 
+/** P7: the legacy catalogue read stays available during the transition; its data source is retired (M8). */
 export async function getCourseCatalogue(actorId: string) {
   const data = await ensureProductData();
   if (!canAuthorCourses(data.users.find(user => user.id === actorId))) throw new AuthoringError("restricted");
-  return data.catalogue || [];
+  return [];
 }
 
-export async function saveCatalogueEntry(actorId: string, entryId: string | null, input: CatalogueInput) {
-  return editData(data => {
-    if (!canOperateBackoffice(data.users.find(user => user.id === actorId))) throw new AuthoringError("restricted");
-    const catalogue = data.catalogue ||= [];
-    const existing = entryId ? catalogue.find(entry => entry.id === entryId) : undefined;
-    if (entryId && !existing) throw new AuthoringError("notFound");
-    if (existing && input.expectedUpdatedAt !== existing.updatedAt) throw new AuthoringError("conflict");
-    if (typeof input.name !== "string" || !input.name.trim() || input.name.length > 100 || input.description !== undefined && (typeof input.description !== "string" || input.description.length > 1000)) throw new AuthoringError("invalid");
-    const parentId = input.parentId === undefined ? existing?.parentId ?? null : input.parentId;
-    if (existing && parentId !== existing.parentId) throw new AuthoringError("invalid");
-    if (parentId && !catalogue.some(entry => entry.id === parentId && entry.parentId === null && entry.status === "active")) throw new AuthoringError("invalid");
-    const status = input.status ?? existing?.status ?? "active";
-    if (!["active", "archived"].includes(status)) throw new AuthoringError("invalid");
-    if (catalogue.some(entry => entry.id !== entryId && entry.parentId === parentId && entry.status === "active" && entry.name.toLocaleLowerCase() === input.name.trim().toLocaleLowerCase())) throw new AuthoringError("conflict");
-    if (existing && status === "archived" && (catalogue.some(entry => entry.parentId === existing.id && entry.status === "active") || data.courses.some(course => course.status !== "archived" && (course.categoryId === existing.id || course.subjectId === existing.id)))) throw new AuthoringError("inUse");
-    const entry: CatalogueEntry = { id: existing?.id || id(parentId ? "subject" : "category"), name: input.name.trim(), description: input.description?.trim() ?? existing?.description ?? "", parentId, status, createdAt: existing?.createdAt || now(), updatedAt: new Date(Math.max(Date.now(), Date.parse(existing?.updatedAt || "1970-01-01") + 1)).toISOString() };
-    if (existing) catalogue[catalogue.indexOf(existing)] = entry; else catalogue.push(entry);
-    authoringActivity(data, actorId, `catalogue-${status}`);
-    return entry;
-  });
+/** P7: the legacy catalogue write endpoints are closed; categories are created and maintained in Admin only. */
+export async function saveCatalogueEntry(actorId: string, entryId: string | null, input: CatalogueInput): Promise<never> {
+  const data = await ensureProductData();
+  if (!canOperateBackoffice(data.users.find(user => user.id === actorId))) throw new AuthoringError("restricted");
+  void entryId; void input;
+  throw new CatalogueManagedInAdminError();
 }
 
 export async function assignCourseOwner(actorId: string, courseId: string, input: { email: string; expectedUpdatedAt: string }) {
@@ -2678,17 +2742,17 @@ export async function assignCourseOwner(actorId: string, courseId: string, input
   });
 }
 
-export async function createCourseForOperator(input: { title: string; description?: string; category?: ProductCourse["category"] } & CourseMetadata, actorId?: string) {
+export async function createCourseForOperator(input: { title: string; description?: string } & CourseMetadata, actorId?: string) {
   return editData((data) => {
     if (actorId && !canAuthorCourses(data.users.find(user => user.id === actorId))) throw new AuthoringError("restricted");
     if (typeof input.title !== "string" || input.title.length > 255 || input.description !== undefined && (typeof input.description !== "string" || input.description.length > 5000)) throw new AuthoringError("invalid");
+    assertNoCategoryWrite(input);
     const title = input.title.trim();
     if (!title) throw new AuthoringError("invalid");
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || id("course");
     if (data.courses.some((course) => course.slug === slug)) throw new AuthoringError("conflict");
-    const category = input.category && ["Chinese Humanities", "European Humanities", "Science"].includes(input.category) ? input.category : "European Humanities";
-    const course: ProductCourse = { ...validateCourseMetadata(input), id: id("course"), slug, title, description: input.description?.trim() || "", category, thumbnailPath: null, authorIds: actorId ? [actorId] : [], status: "draft", sections: [], createdAt: now(), updatedAt: now() };
-    validateCatalogueSelection(data, course);
+    // P3/I7: a new Portal course is unclassified until Admin binds its category.
+    const course: ProductCourse = { ...validateCourseMetadata(input), id: id("course"), slug, title, description: input.description?.trim() || "", categoryKey: null, thumbnailPath: null, authorIds: actorId ? [actorId] : [], status: "draft", sections: [], createdAt: now(), updatedAt: now() };
     data.courses.unshift(course);
     if (actorId) authoringActivity(data, actorId, "create", course.id);
     return course;
@@ -2730,7 +2794,6 @@ export async function setCourseStatus(courseId: string, status: ProductCourse["s
     if (status === "published" && !course.sections.some((section) => section.lessons.length > 0)) throw new AuthoringError("invalid");
     if (status === "published" && course.sections.some(section => section.lessons.some(lesson => !lesson.body.trim() && !lesson.contents?.length))) throw new AuthoringError("invalid");
     if (status === "published") {
-      validateCatalogueSelection(data, course);
       const { assertCourseMediaReferences } = await import("./courseMedia");
       try { await assertCourseMediaReferences(course); } catch { throw new AuthoringError("invalid"); }
     }

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   applyTranslatedBanners,
-  applyTranslatedCategories,
   bundledPortalImages,
   defaultPortalContent,
   localiseHref,
   otherLocale,
+  portalCategoriesUnchanged,
   sourceCopyFingerprint,
   translationIsCurrent,
   withSharedBannerImages
@@ -61,10 +61,14 @@ test("locale prefixes in hrefs follow the target language", () => {
   assert.equal(localiseHref("https://example.com/path", "zh-CN"), "https://example.com/path");
 });
 
-test("translated category labels fill the other locale only", () => {
-  const categories = applyTranslatedCategories(defaultPortalContent.categories, ["中国人文", "欧洲人文", "科学"], "zh-CN");
-  assert.equal(categories[0].labels["en-GB"], "Chinese Humanities");
-  assert.equal(categories[2].labels["zh-CN"], "科学");
+test("P6: the managed category list only accepts an unchanged payload", () => {
+  const managed = defaultPortalContent.categories;
+  assert.equal(portalCategoriesUnchanged(structuredClone(managed), managed), true);
+  const renamed = structuredClone(managed);
+  renamed[0].labels["en-GB"] = "Renamed inside the Portal CMS";
+  assert.equal(portalCategoriesUnchanged(renamed, managed), false);
+  assert.equal(portalCategoriesUnchanged(managed.slice(0, 2), managed), false);
+  assert.equal(portalCategoriesUnchanged(undefined, managed), false);
 });
 
 test("model JSON can be read from a fenced payload", () => {

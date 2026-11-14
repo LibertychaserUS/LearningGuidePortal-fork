@@ -7,6 +7,7 @@
 // or date; every age or time left is whole days / hours relative to `now`, clipped to LEARNER_STATE_LIMITS.
 import { LEARNER_STATE_LIMITS, type LearnerCourseState, type LearnerPlanState, type LearnerState, type TicketStatus } from "@/contracts/helpdesk";
 import type { ProductCourse, ProductEntitlement, ProductOrder, ProductStudyRecord, ProductSubscription, ProductUser } from "@/services/productStore";
+import { normaliseCategoryKey } from "@/lib/coursePage";
 import type { LiveSessionRow, MembershipRow, StudyGroupRow } from "@/modules/group-study/domain";
 
 export type LearnerStateSources = {
@@ -14,7 +15,7 @@ export type LearnerStateSources = {
   user: Pick<ProductUser, "createdAt" | "email" | "emailVerifiedAt"> | null;
   subscriptions: Array<Pick<ProductSubscription, "userId" | "state" | "source" | "validTo"> & Partial<Pick<ProductSubscription, "scope" | "device" | "graceEndsAt">>>;
   entitlements: Array<Pick<ProductEntitlement, "userId" | "courseId" | "state" | "validTo"> & Partial<Pick<ProductEntitlement, "scope" | "scopeId">>>;
-  courses: Array<Pick<ProductCourse, "id" | "title" | "status"> & Partial<Pick<ProductCourse, "category">>>;
+  courses: Array<Pick<ProductCourse, "id" | "title" | "status"> & Partial<Pick<ProductCourse, "categoryKey">>>;
   studyRecords: Array<Pick<ProductStudyRecord, "userId" | "courseId" | "progress" | "totalSeconds" | "updatedAt" | "completedAt">>;
   orders: Array<Pick<ProductOrder, "userId" | "status" | "createdAt">>;
   studyGroups: {
@@ -39,11 +40,15 @@ const clip = (value: number, max: number) => Math.max(-max, Math.min(max, value)
 const daysAgo = (now: number, iso: string | null | undefined) => (Number.isFinite(time(iso)) ? clip(Math.max(0, Math.floor((now - time(iso)) / DAY)), LEARNER_STATE_LIMITS.daysMax) : null);
 const count = (value: number) => Math.min(value, LEARNER_STATE_LIMITS.countMax);
 
-/** The same coverage rule as the product store (scope everything / a category / one course). */
+/** The same stable-key coverage rule as the product store (P5): a category scope is its key. */
 function covers(entitlement: LearnerStateSources["entitlements"][number], course: LearnerStateSources["courses"][number]) {
   const scope = entitlement.scope || (entitlement.courseId === "*" ? "everything" : "course");
   if (scope === "everything") return true;
-  if (scope === "category") return (entitlement.scopeId || null) === (course.category ?? null);
+  if (scope === "category") {
+    const scopeKey = normaliseCategoryKey(entitlement.scopeId);
+    const courseKey = normaliseCategoryKey(course.categoryKey);
+    return Boolean(scopeKey && courseKey && scopeKey === courseKey);
+  }
   return (entitlement.scopeId || entitlement.courseId) === course.id;
 }
 

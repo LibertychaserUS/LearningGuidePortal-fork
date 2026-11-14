@@ -70,7 +70,7 @@ test("Modeling life renders authored bilingual text, timed video points, resourc
       await page.addScriptTag({content:bundle.outputFiles.find(file=>file.path.endsWith("js"))!.text});
       const messages=getMessages(locale),mount=(p:unknown)=>page.evaluate(props=>(window as unknown as {mount:(p:unknown)=>void}).mount(props),p);
       const preview=buildTextLessonPreview(first,course.id,false);
-      const base={locale,courseId:course.id,courseTitle:course.title,category:course.category,description:first.summary,poster:course.cover,lesson:{id:first.id,title:first.title,body:"",durationMinutes:first.durationMinutes,contents:first.contents},outline:previewLessonOutline(course,locale,true),assessmentAvailability:lessonAssessmentAvailability(first),initialCompleted:true,nextHref:null,entitled:true,preferredMode:"text"};
+      const base={locale,courseId:course.id,courseTitle:course.title,category:course.categoryKey ?? "",categoryKey:course.categoryKey ?? undefined,description:first.summary,poster:course.cover,lesson:{id:first.id,title:first.title,body:"",durationMinutes:first.durationMinutes,contents:first.contents},outline:previewLessonOutline(course,locale,true),assessmentAvailability:lessonAssessmentAvailability(first),initialCompleted:true,nextHref:null,entitled:true,preferredMode:"text"};
       await mount({...base,key:"preview",entitled:false,initialCompleted:false,lesson:{...base.lesson,...preview},textPreview:preview.textPreview,trialGate:{pricingHref:`/${locale}/subscription`,recommendations:[],videoLimitSeconds:600}});
       await page.locator('.la-prose img[src$="lesson-1-image1.png"]').waitFor();
       assert.equal(await page.locator(".la-prose img").count(),5);

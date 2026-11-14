@@ -50,7 +50,7 @@ before(async () => {
   student = { ...base, id: "media-student", email: "student@media.test", role: "student" };
   await editFixture(data => {
     data.users.push(teacher, otherTeacher, student);
-    data.courses.push(...[courseId, otherCourseId].map(id => ({ id, slug: id, title: id, description: "Test", status: "draft" as const, authorIds: [id === courseId ? teacher.id : otherTeacher.id], sections: [{ id: "section", title: "Section", lessons: [{ id: "preview", title: "Preview", body: "", isPublic: true, durationMinutes: 5, contents: [] }, { id: "paid", title: "Paid", body: "", isPublic: false, durationMinutes: 5, contents: [] }] }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })));
+    data.courses.push(...[courseId, otherCourseId].map(id => ({ id, slug: id, title: id, description: "Test", categoryKey: null, status: "draft" as const, authorIds: [id === courseId ? teacher.id : otherTeacher.id], sections: [{ id: "section", title: "Section", lessons: [{ id: "preview", title: "Preview", body: "", isPublic: true, durationMinutes: 5, contents: [] }, { id: "paid", title: "Paid", body: "", isPublic: false, durationMinutes: 5, contents: [] }] }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })));
   });
   teacherToken = (await store.createSession(teacher.id)).token;
   teacherLearnerToken = (await store.createSession(teacher.id)).token;
@@ -173,7 +173,7 @@ test("public HTML references are parsed after sanitisation, not substring-matche
 
 test("exhibit thumbnails serve through the real media API with the same publication, preview and entitlement policy", async () => {
   const id = "exhibit-thumbnail-course";
-  await editFixture(data => { data.courses.push({ id, slug: id, title: "Exhibit thumbnails", description: "Test", status: "published", authorIds: [teacher.id], sections: [{ id: "thumbnail-section", title: "Section", lessons: [
+  await editFixture(data => { data.courses.push({ id, slug: id, title: "Exhibit thumbnails", description: "Test", categoryKey: null, status: "published", authorIds: [teacher.id], sections: [{ id: "thumbnail-section", title: "Section", lessons: [
     { id: "public-thumbnail", title: "Preview", body: "", isPublic: true, durationMinutes: 5, preview: { textPointCount: 1, videoLimitSeconds: 600 }, contents: [] },
     { id: "paid-thumbnail", title: "Paid", body: "", isPublic: false, durationMinutes: 5, contents: [] },
   ] }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); });
@@ -330,7 +330,7 @@ test("stored media caps open-ended ranges and keeps the tail of a large suffix r
 test("teacher learner cookie cannot bypass publication or entitlement through admin preview", async () => {
   const id = "media-transport-course";
   await editFixture(data => {
-    data.courses.push({ id, slug: id, title: "Transport regression", description: "Test", status: "draft", authorIds: [teacher.id], sections: [{ id: "transport-section", title: "Section", lessons: [
+    data.courses.push({ id, slug: id, title: "Transport regression", description: "Test", categoryKey: null, status: "draft", authorIds: [teacher.id], sections: [{ id: "transport-section", title: "Section", lessons: [
       { id: "transport-preview", title: "Preview", body: "", isPublic: true, durationMinutes: 5, contents: [] },
       { id: "transport-paid", title: "Paid", body: "", isPublic: false, durationMinutes: 5, contents: [] },
     ] }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -375,7 +375,7 @@ test("teacher learner cookie cannot bypass publication or entitlement through ad
 
 test("text preview media follows the third-point and half-text delivery boundary, including direct range and HEAD requests", async () => {
   const id = "text-preview-media";
-  await editFixture(data => { data.courses.push({ id, slug: id, title: "Text preview", description: "Test", status: "published", authorIds: [teacher.id], sections: [{ id: "text-section", title: "Section", lessons: [{ id: "text-public", title: "Text", body: "", isPublic: true, durationMinutes: 5, contents: [] }] }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); });
+  await editFixture(data => { data.courses.push({ id, slug: id, title: "Text preview", description: "Test", categoryKey: null, status: "published", authorIds: [teacher.id], sections: [{ id: "text-section", title: "Section", lessons: [{ id: "text-public", title: "Text", body: "", isPublic: true, durationMinutes: 5, contents: [] }] }], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); });
   const visible = await media.uploadCourseMedia(teacher, id, input()), hidden = await media.uploadCourseMedia(teacher, id, input());
   await editFixture(data => {
     data.courses.find(course => course.id === id)!.sections[0].lessons[0].contents = [visible, visible, hidden].map((asset, index) => ({

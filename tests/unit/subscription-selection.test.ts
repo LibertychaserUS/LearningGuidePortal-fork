@@ -8,7 +8,6 @@ import { createRequire } from "node:module";
 import { buildSubscriptionSelection } from "../../services/subscriptionSelection";
 import { PaymentError } from "../../contracts/payment";
 import { paymentFailure } from "../../services/paymentHttp";
-import { defaultPortalContent } from "../../lib/portalContent";
 import type { ProductPlan, ProductSubscription } from "../../services/productStore";
 import { verifiedUser, readProductData, writeProductData } from "./helpers/my-learning";
 
@@ -31,20 +30,38 @@ test("five states use distinct live paid categories, actual expiry and caller ow
   const data = await store.ensureProductData(), at = Date.parse("2026-10-17T00:00:00Z");
   const make = (index: number, category: string, patch: Partial<ProductSubscription> = {}): ProductSubscription => ({ id: `s${index}`, userId: "owner", planId: `${category}-pc-6`, courseId: "*", scope: category === "everything" ? "everything" : "category", scopeId: category, source: "purchase", state: "active", validFrom: "2026-08-01T00:00:00Z", validTo: "2027-01-31T00:00:00Z", cancelAtPeriodEnd: false, device: "pc", ...patch });
   const categories = [make(1, "Chinese Humanities"), make(2, "Science"), make(3, "European Humanities")];
-  assert.equal(buildSubscriptionSelection([], data.plans, "owner", at).kind, "none");
-  assert.equal(buildSubscriptionSelection(categories.slice(0, 1), data.plans, "owner", at).kind, "one_category");
-  assert.equal(buildSubscriptionSelection(categories.slice(0, 2), data.plans, "owner", at).kind, "two_categories");
-  assert.equal(buildSubscriptionSelection(categories, data.plans, "owner", at).kind, "all_categories");
+  // P5: "all categories" is measured against the ACTIVE catalogue, never a count.
+  const activeCategoryKeys = categories.map(category => category.scopeId!);
+  const build = (subscriptions: ProductSubscription[], owner = "owner") => buildSubscriptionSelection(subscriptions, data.plans, owner, at, { activeCategoryKeys });
+  assert.equal(build([]).kind, "none");
+  assert.equal(build(categories.slice(0, 1)).kind, "one_category");
+  assert.equal(build(categories.slice(0, 2)).kind, "two_categories");
+  assert.equal(build(categories).kind, "all_categories");
   const everything = make(4, "everything", { planId: "everything-pc-6" });
-  const all = buildSubscriptionSelection([...categories, everything], data.plans, "owner", at);
+  const all = build([...categories, everything]);
   assert.equal(all.kind, "everything"); assert.equal(all.everything?.amountMinor, 9900);
-  assert.equal(buildSubscriptionSelection(categories, data.plans, "someone-else", at).kind, "none");
-  for (const patch of [{ source: "trial" }, { state: "expired" }, { validTo: "2020-01-01" }] as Partial<ProductSubscription>[]) assert.equal(buildSubscriptionSelection([make(1, "Science", patch)], data.plans, "owner", at).kind, "none");
-  const cancelled = buildSubscriptionSelection([make(1, "Science", { state: "cancel_at_period_end" })], data.plans, "owner", at);
+  assert.equal(build(categories, "someone-else").kind, "none");
+  for (const patch of [{ source: "trial" }, { state: "expired" }, { validTo: "2020-01-01" }] as Partial<ProductSubscription>[]) assert.equal(build([make(1, "Science", patch)]).kind, "none");
+  const cancelled = build([make(1, "Science", { state: "cancel_at_period_end" })]);
   assert.equal(cancelled.kind, "one_category"); assert.equal(cancelled.categorySubscription?.canUpgrade, false);
-  assert.equal(buildSubscriptionSelection([categories[0], { ...categories[0], id: "same-category-other-term" }], data.plans, "owner", at).kind, "one_category");
-  assert.equal(buildSubscriptionSelection([make(1, "Science", { state: "grace", validTo: "2020-01-01", graceEndsAt: "2026-10-20" })], data.plans, "owner", at).kind, "one_category");
-  assert.equal(buildSubscriptionSelection([{ ...everything, device: "mobile" }], data.plans, "owner", at).kind, "everything");
+  assert.equal(build([categories[0], { ...categories[0], id: "same-category-other-term" }]).kind, "one_category");
+  assert.equal(build([make(1, "Science", { state: "grace", validTo: "2020-01-01", graceEndsAt: "2026-10-20" })]).kind, "one_category");
+  assert.equal(build([{ ...everything, device: "mobile" }]).kind, "everything");
+});
+
+test("P2/P5: a cold-start seed catalogue is unknown, so owning the four seed categories is never all_categories", async () => {
+  const data = await store.ensureProductData(), at = Date.parse("2026-10-17T00:00:00Z");
+  const seedKeys = ["Science", "Chinese Humanities", "European Humanities", "Society"];
+  const subscriptions: ProductSubscription[] = seedKeys.map((key, index) => ({ id: `seed-${index}`, userId: "owner", planId: `${key}-pc-6`, courseId: "*", scope: "category", scopeId: key, source: "purchase", state: "active", validFrom: "2026-08-01T00:00:00Z", validTo: "2027-01-31T00:00:00Z", cancelAtPeriodEnd: false, device: "pc" }));
+  const build = (source: "live" | "last-good" | "seed") => buildSubscriptionSelection(subscriptions, data.plans, "owner", at, { activeCategoryKeys: seedKeys, activeCatalogueSource: source });
+
+  // The built-in four-category seed is not the live Admin directory: the ACTIVE set is unknown,
+  // so a full match against it must not be promoted to "all categories" (P5).
+  assert.notEqual(build("seed").kind, "all_categories");
+  assert.equal(build("seed").kind, "multiple_categories", "seed ownership is still reported as multiple, just not all");
+  // Real Admin data — live or last-good — remains authoritative.
+  assert.equal(build("live").kind, "all_categories");
+  assert.equal(build("last-good").kind, "all_categories");
 });
 
 test("two categories reject upgrade quotes, direct Everything purchases and stale unpaid orders; third stays purchasable", async () => {
@@ -65,7 +82,8 @@ test("two categories reject upgrade quotes, direct Everything purchases and stal
   await assert.rejects(() => store.completeDemoOrder(user.id, pending.order.id), blocked);
   const after = await readProductData(); assert.deepEqual(after.orders, before.orders); assert.deepEqual(after.subscriptions, before.subscriptions);
   await buy(user.id, "european-humanities-pc-6");
-  assert.equal((await store.getSubscriptionSelection(user.id)).kind, "all_categories");
+  // P5: with the four ACTIVE seeded categories, three of four is not "all categories".
+  assert.equal((await store.getSubscriptionSelection(user.id)).kind, "multiple_categories");
   await assert.rejects(() => store.createUpgradeQuote(user.id, first.subscription.id), blocked);
 });
 
@@ -102,15 +120,24 @@ test("quote API derives user from Session and localises the multi-category rejec
 
 test("subscription route uses Session ownership and normalises catalogue categories before rendering", async () => {
   const state = { user: { id: "owner", nickname: "Current User" } as { id: string; nickname: string } | null, calls: [] as (string | undefined)[], fail: false };
-  (globalThis as any).selectionRoute = { state, categories: defaultPortalContent.categories, selection: buildSubscriptionSelection([], [], "owner") };
+  // C1/P5: the page consumes the Admin catalogue's four ACTIVE categories
+  // (stable name + localized), not the retired Portal CMS three-category list.
+  const catalogue = [
+    { name: "Science", localized: { "en-GB": { name: "Science" }, "zh-CN": { name: "科学" } }, sortOrder: 0, children: [] },
+    { name: "Chinese Humanities", localized: { "en-GB": { name: "Chinese Humanities" }, "zh-CN": { name: "中国人文" } }, sortOrder: 1, children: [] },
+    { name: "European Humanities", localized: { "en-GB": { name: "European Humanities" }, "zh-CN": { name: "欧洲人文" } }, sortOrder: 2, children: [] },
+    { name: "Society", localized: { "en-GB": { name: "Society" }, "zh-CN": { name: "社会" } }, sortOrder: 3, children: [] }
+  ];
+  (globalThis as any).selectionRoute = { state, catalogue, selection: buildSubscriptionSelection([], [], "owner") };
   try {
     const bundle = await build({ entryPoints: [path.join(original, "app/[locale]/subscription/page.tsx")], bundle: true, write: false, platform: "node", format: "cjs", jsx: "automatic", external: ["react/jsx-runtime"], plugins: [{ name: "session", setup(b) {
-      b.onResolve({ filter: /services\/(productAuth|productStore)$|components\/portal\/(SubscriptionSelection|PurchasePanel|PortalHeader|PortalFooter)$/ }, args => ({ path: args.path, namespace: "mock" }));
-      b.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path.endsWith("productAuth") ? "export async function currentProductUser(){return globalThis.selectionRoute.state.user}" : args.path.endsWith("productStore") ? `export async function getPortalContent(){return {categories:globalThis.selectionRoute.categories}};export async function listPlansForPurchase(){return []};export async function getProductCourse(){return null};export async function listPublishedCourses(){return [{categoryId:'catalogue-uuid',category:'中国人文',title:'Actual course'}]};export async function getSubscriptionSelection(user){globalThis.selectionRoute.state.calls.push(user);if(globalThis.selectionRoute.state.fail)throw new Error('selection-store-unavailable');return globalThis.selectionRoute.selection}` : "export const SubscriptionSelection=()=>null,PurchasePanel=()=>null,PortalHeader=()=>null,PortalFooter=()=>null" }));
+      b.onResolve({ filter: /services\/(productAuth|productStore|adminCatalogueCache)$|components\/portal\/(SubscriptionSelection|PurchasePanel|PortalHeader|PortalFooter)$/ }, args => ({ path: args.path, namespace: "mock" }));
+      b.onLoad({ filter: /.*/, namespace: "mock" }, args => ({ contents: args.path.endsWith("productAuth") ? "export async function currentProductUser(){return globalThis.selectionRoute.state.user}" : args.path.endsWith("adminCatalogueCache") ? "export async function getAdminCatalogue(){return globalThis.selectionRoute.catalogue}" : args.path.endsWith("productStore") ? `export async function getPortalContent(){return {categories:[]}};export async function listPlansForPurchase(){return []};export async function getProductCourse(){return null};export async function listPublishedCourses(){return [{categoryKey:'Chinese Humanities',title:'Actual course'}]};export async function getSubscriptionSelection(user){globalThis.selectionRoute.state.calls.push(user);if(globalThis.selectionRoute.state.fail)throw new Error('selection-store-unavailable');return globalThis.selectionRoute.selection}` : "export const SubscriptionSelection=()=>null,PurchasePanel=()=>null,PortalHeader=()=>null,PortalFooter=()=>null" }));
     } }] });
     const routeModule = { exports: {} as { default: (props: any) => Promise<any> } }; new Function("require", "module", "exports", bundle.outputFiles[0].text)(createRequire(import.meta.url), routeModule, routeModule.exports);
     const invoke = (locale = "en-GB") => routeModule.exports.default({ params: Promise.resolve({ locale }), searchParams: Promise.resolve({ upgradeFrom: "forged-subscription" }) });
-    for (const locale of ["en-GB", "zh-CN"]) { const page = await invoke(locale); const props = page.props.children[1].props.children[0].props; assert.equal(props.selection.kind, "none"); assert.deepEqual(props.courseTitles, [{ category: "Chinese Humanities", title: "Actual course" }]); }
+    const expectedCategories = catalogue.map(node => ({ id: node.name, labels: { "en-GB": node.localized["en-GB"].name, "zh-CN": node.localized["zh-CN"].name } }));
+    for (const locale of ["en-GB", "zh-CN"]) { const page = await invoke(locale); const props = page.props.children[1].props.children[0].props; assert.equal(props.selection.kind, "none"); assert.equal(props.categories.length, 4, "the subscription page passes the four ACTIVE Admin categories"); assert.deepEqual(props.categories, expectedCategories); assert.ok(props.categories.some((category: { id: string }) => category.id === "Society"), "Society is purchasable surface on the subscription page"); assert.deepEqual(props.courseTitles, [{ category: "Chinese Humanities", title: "Actual course" }]); }
     assert.deepEqual(state.calls, ["owner", "owner"]);
     state.user = null; await invoke(); assert.equal(state.calls.at(-1), undefined);
     state.fail = true; await assert.rejects(invoke(), /selection-store-unavailable/);

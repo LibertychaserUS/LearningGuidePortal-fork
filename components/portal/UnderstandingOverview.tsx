@@ -11,8 +11,8 @@ import { getMessages } from "@/lib/i18n/messages";
 import { PersistedAssessmentDialog } from "./PersistedAssessmentDialog";
 import styles from "./understanding-overview.module.css";
 
-export function UnderstandingOverview({ locale, courseId, courseTitle, category, backHref, data }: {
-  locale:Locale; courseId:string; courseTitle:string; category:string; backHref:string; data:UnderstandingOverviewDisplay;
+export function UnderstandingOverview({ locale, courseId, courseTitle, category, categoryKey, backHref, data }: {
+  locale:Locale; courseId:string; courseTitle:string; category:string; categoryKey?:string; backHref:string; data:UnderstandingOverviewDisplay;
 }) {
   const messages=getMessages(locale), copy=messages.understandingOverview, tests=messages.lessonCompleted, records=messages.assessmentRecords;
   const [view,setView]=useState(data), [error,setError]=useState("");
@@ -32,7 +32,7 @@ export function UnderstandingOverview({ locale, courseId, courseTitle, category,
   const nextLesson=selected ? view.lessons[view.lessons.indexOf(selected)+1] : undefined;
   const courseHref=`/${locale}/portal/courses/${encodeURIComponent(courseId)}`;
   return <div className={styles.page} data-course-id={courseId}>
-    <nav className={styles.breadcrumb} aria-label={messages.courseDetailDesign.breadcrumb}><Link href={`/${locale}/portal/courses`}>{messages.portal.navigation.courses}</Link><span>/</span>{category && <><Link href={`/${locale}/portal/courses?category=${encodeURIComponent(category)}`}>{category}</Link><span>/</span></>}<Link href={courseHref}>{courseTitle}</Link><span>/</span><span aria-current="page">{copy.title}</span></nav>
+    <nav className={styles.breadcrumb} aria-label={messages.courseDetailDesign.breadcrumb}><Link href={`/${locale}/portal/courses`}>{messages.portal.navigation.courses}</Link><span>/</span>{category && <><Link href={`/${locale}/portal/courses?category=${encodeURIComponent(categoryKey || category)}`}>{category}</Link><span>/</span></>}<Link href={courseHref}>{courseTitle}</Link><span>/</span><span aria-current="page">{copy.title}</span></nav>
     <div className={styles.content}>
       <article className={styles.panel}><header className={styles.header}><Link className={styles.back} href={backHref} aria-label={copy.back}><ArrowLeft size={18} aria-hidden="true"/></Link><div className={styles.headingCopy}><h1>{copy.title}</h1><p>{copy.description}</p></div></header>
         {error&&<p role="alert">{error} <button onClick={()=>void refresh()}>{records.retry}</button></p>}

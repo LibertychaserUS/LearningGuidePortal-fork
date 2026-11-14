@@ -17,7 +17,8 @@ type Copy = ReturnType<typeof getMessages>["authoring"];
 
 export function CourseOutlineEditor({ course, copy, onSaved, onClose, catalogue = [], locale = "en-GB" }: { course: ProductCourse; copy: Copy; onSaved: () => Promise<void>; onClose: () => void; catalogue?: CatalogueEntry[]; locale?: "en-GB" | "zh-CN" }) {
   const messages = getCourseManagementMessages(locale);
-  const draftOf = (value: ProductCourse): CourseDraftInput => ({ expectedUpdatedAt: value.updatedAt, title: value.title, description: value.description, subtitle: value.subtitle || "", cover: value.cover ?? value.thumbnailPath ?? null, level: value.level || "", tags: value.tags || [], categoryId: value.categoryId || null, subjectId: value.subjectId || null, referencePrice: value.referencePrice ?? null, discount: value.discount ?? null, sections: structuredClone(value.sections), removedSectionIds: [], removedLessonIds: [] });
+  // P7: category/subject are Admin-managed; the draft never carries them (the write is rejected).
+  const draftOf = (value: ProductCourse): CourseDraftInput => ({ expectedUpdatedAt: value.updatedAt, title: value.title, description: value.description, subtitle: value.subtitle || "", cover: value.cover ?? value.thumbnailPath ?? null, level: value.level || "", tags: value.tags || [], referencePrice: value.referencePrice ?? null, discount: value.discount ?? null, sections: structuredClone(value.sections), removedSectionIds: [], removedLessonIds: [] });
   const [draft, setDraft] = useState<CourseDraftInput>(() => draftOf(course));
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -102,7 +103,7 @@ export function CourseOutlineEditor({ course, copy, onSaved, onClose, catalogue 
       {tab === "basic" ? <div className={styles.pane}><fieldset className={styles.fields} disabled={locked}>
         <label>{copy.title}<input required maxLength={255} value={draft.title} onChange={(event) => edit((next) => { next.title = event.target.value; })}/></label>
         <label>{copy.description}<textarea maxLength={5000} rows={4} value={draft.description} onChange={(event) => edit((next) => { next.description = event.target.value; })}/></label>
-        <CourseMetadataEditor courseId={course.id} value={draft} locale={locale} catalogue={catalogue} onUploadingChange={setUploading} onChange={(patch) => edit((next) => { Object.assign(next, patch); })}/>
+        <CourseMetadataEditor courseId={course.id} value={draft} locale={locale} categoryKey={course.categoryKey} onUploadingChange={setUploading} onChange={(patch) => edit((next) => { Object.assign(next, patch); })}/>
       </fieldset></div> : <div className={styles.pane}>
         <div className={styles.workspace}>
           <aside className={styles.outline}>

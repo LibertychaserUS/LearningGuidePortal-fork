@@ -1,34 +1,54 @@
 import Link from "next/link";
 import { getMessages } from "@/lib/i18n/messages";
 import { localeFrom } from "@/lib/i18n/config";
-import { getPortalContent, listPublishedCourses } from "@/services/productStore";
+import { listPublishedCourses, publicFirstLesson } from "@/services/productStore";
+import { getAdminCatalogue } from "@/services/adminCatalogueCache";
 import { CatalogueCourseCard } from "@/components/portal/CatalogueCourseCard";
 import { PortalFooter } from "@/components/portal/PortalFooter";
 import { PortalHeader } from "@/components/portal/PortalHeader";
 import { StreamedContent } from "@/components/portal/StreamedContent";
 import { currentProductUser } from "@/services/productAuth";
 import { signCourseMediaUrl } from "@/services/persistence/s3";
+import { resolveCourseCategory } from "@/lib/coursePage";
+
+/**
+ * P8 — "trial enabled" is a public course projection flag (Admin-owned). A course qualifies for
+ * the Start preview CTA only when it is published, trial enabled and has a public first lesson.
+ */
+function trialEnabled(course: unknown) {
+  const value = course as { trialEnabled?: unknown; trial?: { enabled?: unknown } | null };
+  return value.trialEnabled === true || value.trial?.enabled === true;
+}
 
 export default async function CoursesPage({ params, searchParams }: { params: Promise<{ locale: string }>; searchParams: Promise<{ category?: string }> }) {
   const { locale: rawLocale } = await params;
   const locale = localeFrom(rawLocale);
   const copy = getMessages(locale).portal;
-  const courses = await listPublishedCourses();
-  const user = await currentProductUser();
+  const [courses, catalogue, user] = await Promise.all([listPublishedCourses(), getAdminCatalogue(), currentProductUser()]);
+  // P3/P4: the catalogue is the only category vocabulary; filtering compares the resolved stable key.
+  const resolvedCategories = new Map(courses.map((course) => [course.id, resolveCourseCategory(course, catalogue)]));
   const category = ((await searchParams).category || "All").trim();
-  const visibleCourses = category === "All" ? courses : courses.filter((course) => (course.category || "European Humanities") === category);
-  const content = await getPortalContent();
-  const categories = [{ id: "All", labels: { "en-GB": copy.allCategories, "zh-CN": copy.allCategories } }, ...content.categories];
+  const visibleCourses = category === "All" ? courses : courses.filter((course) => resolvedCategories.get(course.id)?.name === category);
+  const categories = [{ name: "All", label: copy.allCategories }, ...catalogue.map((node) => ({ name: node.name, label: node.localized[locale]?.name || node.name }))];
+  // P8: derive the preview CTA from the catalogue data instead of a hard-coded course/lesson id.
+  const trialCourse = courses.find((course) => trialEnabled(course) && Boolean(publicFirstLesson(course)));
+  const trialLesson = trialCourse ? publicFirstLesson(trialCourse) : null;
+  const previewHref = trialCourse && trialLesson
+    ? `/${locale}/portal/courses/${encodeURIComponent(trialCourse.id)}/public-lesson?lessonId=${encodeURIComponent(trialLesson.id)}`
+    : null;
 
   return (
     <main className="portal-page portal-catalog-page">
       <StreamedContent>
       <PortalHeader locale={locale} active="courses" signedIn={Boolean(user)} displayName={user?.nickname} avatarUrl={user?.avatarPath ? "/api/my-learning/avatar" : undefined} />
-      <section className="courses-design-hero"><div><h1>{copy.coursesHeroTitle}</h1><p>{copy.coursesHeroDescription}</p><Link className="portal-button" href={`/${locale}/portal/courses/quintus-horatius-flaccus/public-lesson?lessonId=horatius-lesson-21`}>{copy.startPreview}</Link></div></section>
+      <section className="courses-design-hero"><div><h1>{copy.coursesHeroTitle}</h1><p>{copy.coursesHeroDescription}</p>{previewHref ? <Link className="portal-button" href={previewHref}>{copy.startPreview}</Link> : null}</div></section>
       <section className="portal-section portal-section-first portal-catalog-courses">
         <div className="portal-section-heading"><div><h2>{copy.exploreAllCourses}</h2><p className="portal-section-description">{copy.exploreDescription}</p></div></div>
-        <nav className="portal-category-filter" aria-label={copy.category}>{categories.map(item => <Link key={item.id} prefetch={false} className={category === item.id ? "active" : ""} aria-current={category === item.id ? "page" : undefined} href={`/${locale}/portal/courses?category=${encodeURIComponent(item.id)}`}>{item.labels[locale]}</Link>)}</nav>
-        {visibleCourses.length ? <div className="portal-course-grid">{await Promise.all(visibleCourses.map(async course => <CatalogueCourseCard key={course.id} course={{ ...course, cover: await signCourseMediaUrl(course.cover || course.thumbnailPath || "") }} locale={locale} category={content.categories.find(item => item.id === (course.category || "European Humanities"))?.labels[locale] || course.category || ""} />))}</div> : <p className="portal-empty">{copy.noCourses}</p>}
+        <nav className="portal-category-filter" aria-label={copy.category}>{categories.map(item => <Link key={item.name} prefetch={false} className={category === item.name ? "active" : ""} aria-current={category === item.name ? "page" : undefined} href={`/${locale}/portal/courses?category=${encodeURIComponent(item.name)}`}>{item.label}</Link>)}</nav>
+        {visibleCourses.length ? <div className="portal-course-grid">{await Promise.all(visibleCourses.map(async course => {
+          const resolved = resolvedCategories.get(course.id);
+          return <CatalogueCourseCard key={course.id} course={{ ...course, cover: await signCourseMediaUrl(course.cover || course.thumbnailPath || "") }} locale={locale} category={resolved ? resolved.localized[locale]?.name || resolved.name : null} />;
+        }))}</div> : <p className="portal-empty">{copy.noCourses}</p>}
       </section>
       <section className="courses-design-method"><div><p className="portal-eyebrow">{copy.whyUs}</p><h2>{copy.whyUsTitle}</h2><p>{copy.exploreDescription}</p></div><ol><li>Apply what you learn</li><li>Share your perspective</li><li>See the bigger picture</li></ol></section>
       <PortalFooter locale={locale} />

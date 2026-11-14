@@ -29,7 +29,7 @@ test("shortened Science purchase expires at Shanghai midnight and paid renewal r
     await applyOrmMigrations(ormFromProductData(data), [testMigration], { store: "sql" }, data);
     await writeProductData(data);
 
-    const course = (await store.listPublishedCourses()).find(row => row.category === "Science")!;
+    const course = (await store.listPublishedCourses()).find(row => row.categoryKey === "Science")!;
     assert.ok(course);
     const route = await import("../../app/api/entitlements/check/route");
     const request = () => new Request(`http://localhost/api/entitlements/check?courseId=${course.id}`);

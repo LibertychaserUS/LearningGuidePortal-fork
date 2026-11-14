@@ -100,7 +100,7 @@ export function modelingLifeCourse(createdAt: string): ProductCourse {
     slug: COURSE_ID,
     title: "Modeling life",
     description: "See how mathematics models life, from population growth to neural activity and disease. Simulate real biological systems with Euler's method, no prior background in differential equations required.",
-    category: "Science",
+    categoryKey: "Science",
     cover: "/portal/modeling-life-cover.png",
     thumbnailPath: "/portal/modeling-life-cover.png",
     level: "beginner",

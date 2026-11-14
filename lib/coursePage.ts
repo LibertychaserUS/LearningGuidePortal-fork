@@ -2,6 +2,39 @@ import {
   courseProgressFromUniqueLearningPoints,
   type AccessState,
 } from "@/lib/myLearningOverview";
+import type { AdminCatalogueLocalized, AdminCatalogueNode } from "@/contracts/admin-catalogue";
+
+/**
+ * P3 — the single category representation and the single resolver.
+ *
+ * A Portal course carries one stable category key (`ProductCourse.categoryKey`) that equals the
+ * Admin `CourseCatalogueEntry.name`. Display names live in the Admin catalogue only; a display
+ * name stored in `categoryKey` is unknown to the catalogue and resolves to null. No surface may
+ * implement a second matching rule.
+ */
+export type ResolvedCourseCategory = { name: string; localized: AdminCatalogueLocalized };
+
+/** The one canonical form of a stable category key: trimmed, case-insensitive. */
+export function normaliseCategoryKey(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed.toLocaleLowerCase() : null;
+}
+
+/** Resolve a course's `categoryKey` against the Admin catalogue tree; unknown or display names resolve to null. */
+export function resolveCourseCategory(
+  course: { categoryKey?: string | null } | null | undefined,
+  catalogue: readonly AdminCatalogueNode[],
+): ResolvedCourseCategory | null {
+  const key = normaliseCategoryKey(course?.categoryKey);
+  if (!key) return null;
+  const stack = [...catalogue];
+  while (stack.length) {
+    const node = stack.shift() as AdminCatalogueNode;
+    if (normaliseCategoryKey(node.name) === key) return { name: node.name, localized: node.localized };
+    stack.push(...(node.children || []));
+  }
+  return null;
+}
 
 /** D1 Course page primitives — identity, syllabus access, CTA bands. */
 export type CoursePageState = "available" | "withdrawn" | "failed";
@@ -48,7 +81,7 @@ export type CoursePage = {
 
 type CourseLike = {
   title: string;
-  category?: string | null;
+  categoryKey?: string | null;
   status: string;
   sections: Array<{ lessons: Array<{ id: string; title: string; isPublic: boolean; durationMinutes?: number }> }>;
 };
@@ -58,7 +91,8 @@ export function courseIdentityFrom(course: CourseLike): CourseIdentity {
   const lessons = course.sections.flatMap((section) => section.lessons);
   return {
     title: course.title,
-    track: course.category || "European Humanities",
+    // P3/P4: the stable key, never an invented default display category.
+    track: course.categoryKey ?? "",
     lessonCount: lessons.length,
     previewAvailable: Boolean(lessons[0]?.isPublic),
     totalMinutes: lessons.reduce((total, lesson) => total + (lesson.durationMinutes || 0), 0),

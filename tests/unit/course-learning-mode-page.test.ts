@@ -21,6 +21,7 @@ test("first course entry skips the chooser for single-mode courses in both local
           export async function listPlans(){return []};
           export async function getCoursePage(){return {pageState:globalThis.modePageState.pageState,identity:{title:'Course',track:'Art',lessonCount:1,totalMinutes:1},syllabus:[{lessonId:'lesson',title:'Lesson',openable:true,access:'previewable'}],cta:'start_preview',accessState:'none',actionLessonId:'lesson'}};
         ` : args.path.endsWith("productAuth") ? "export async function currentProductUser(){return globalThis.modePageState.user}"
+        : args.path.endsWith("adminCatalogueCache") ? "export async function getAdminCatalogue(){return [{name:'Art',localized:{'en-GB':{name:'Art'},'zh-CN':{name:'艺术'}},sortOrder:0,children:[]}]}"
         : args.path.endsWith("/s3") ? "export async function signCourseMediaUrl(){return ''}"
         : args.path === "next/navigation" ? "export function redirect(url){throw new Error('redirect:'+url)}"
         : args.path.startsWith("next/") ? "export default 'mock-ui'"

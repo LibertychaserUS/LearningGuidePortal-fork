@@ -6,7 +6,7 @@ import type { CourseDraftInput, CourseMetadata } from "../../contracts/course-au
 
 const timestamp = "2026-01-01T00:00:00.000Z";
 const teacher: ProductUser = { id: "teacher-1", role: "teacher", status: "active", email: "teacher@example.test", emailVerifiedAt: timestamp, passwordHash: null, nickname: "Teacher", locale: "en-GB", createdAt: timestamp };
-const course: ProductCourse = { id: "course-1", slug: "course-one", title: "Course one", description: "Description", category: "Science", authorIds: [teacher.id], status: "draft", createdAt: timestamp, updatedAt: timestamp, sections: [{ id: "section-1", title: "Section one", lessons: [{ id: "lesson-1", title: "First lesson", body: "Legacy text", durationMinutes: 10, isPublic: false }] }] };
+const course: ProductCourse = { id: "course-1", slug: "course-one", title: "Course one", description: "Description", categoryKey: "Science", authorIds: [teacher.id], status: "draft", createdAt: timestamp, updatedAt: timestamp, sections: [{ id: "section-1", title: "Section one", lessons: [{ id: "lesson-1", title: "First lesson", body: "Legacy text", durationMinutes: 10, isPublic: false }] }] };
 const input = (): CourseDraftInput => ({ expectedUpdatedAt: timestamp, title: course.title, description: course.description, sections: structuredClone(course.sections) });
 
 test("metadata is validated and round-trips without changing billing, ownership or identity", () => {
@@ -16,7 +16,7 @@ test("metadata is validated and round-trips without changing billing, ownership 
   assert.deepEqual(next.tags, ["Algebra", "Logic"]);
   assert.equal(next.referencePrice, 42.5);
   assert.equal(next.discount, 12.5);
-  for (const key of ["id", "slug", "category", "authorIds", "createdAt"] as const) assert.deepEqual(next[key], course[key]);
+  for (const key of ["id", "slug", "categoryKey", "authorIds", "createdAt"] as const) assert.deepEqual(next[key], course[key]);
   for (const invalid of [{ level: "expert" }, { discount: 101 }, { referencePrice: -1 }, { referencePrice: 0.001 }, { discount: NaN }, { cover: "javascript:alert(1)" }, { cover: "//example.test/image" }, { tags: [23] }, { subjectId: {} }] as unknown as CourseMetadata[]) assert.throws(() => validateCourseMetadata(invalid), { code: "invalid" });
   assert.throws(() => validateCourseMetadata({ cover: "/api/course-media/other/11111111-1111-4111-8111-111111111111" }, course.id), { code: "invalid" });
 });
@@ -53,7 +53,7 @@ test("legacy draft payloads preserve rich content; explicit rich removal clears 
 });
 
 test("catalogue search filters the entire owned collection before pagination", () => {
-  const courses: ProductCourse[] = Array.from({ length: 27 }, (_, index) => ({ ...course, id: "course-" + index, title: "Course " + index, categoryId: "category-1", subjectId: index % 2 ? "subject-1" : "subject-2", level: "beginner", tags: index === 25 ? ["Needle"] : [], authorIds: index === 26 ? ["foreign"] : [teacher.id] }));
+  const courses: ProductCourse[] = Array.from({ length: 27 }, (_, index) => ({ ...course, id: "course-" + index, title: "Course " + index, categoryKey: index % 2 ? "category-1" : "category-2", level: "beginner", tags: index === 25 ? ["Needle"] : [], authorIds: index === 26 ? ["foreign"] : [teacher.id] }));
   const first = selectAuthorCourses(courses, teacher, { pageSize: 10, page: 1 });
   assert.equal(first.total, 26); assert.equal(first.pages, 3); assert.equal(first.courses.length, 10);
   const searched = selectAuthorCourses(courses, teacher, { search: "needle", page: 3 });

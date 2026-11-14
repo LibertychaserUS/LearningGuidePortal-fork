@@ -3,6 +3,8 @@ import { nextLessonHref } from "@/lib/lessonContinuation";
 import { redirect, notFound } from "next/navigation";
 import { currentProductUser } from "@/services/productAuth";
 import { checkEntitlement, getLearningOverview, getProductCourse, getCourseLearningMode, getLessonBookmarks } from "@/services/productStore";
+import { getAdminCatalogue } from "@/services/adminCatalogueCache";
+import { resolveCourseCategory } from "@/lib/coursePage";
 import { localeFrom } from "@/lib/i18n/config";
 import { PreviewLessonView } from "@/components/portal/PreviewLessonView";
 import { PortalHeader } from "@/components/portal/PortalHeader";
@@ -49,9 +51,11 @@ export default async function LearningPage({ params, searchParams }: { params: P
   const entry = bookmarkSnapshot ? resolveLessonEntry({ lessonId: lesson.id, snapshot: bookmarkSnapshot, completed: Boolean(study?.completedLessonIds.includes(lesson.id)), courseMode, languageContinuation: resume === "1", switchingMode: modeSwitch === "1", requestedMode: isCourseLearningMode(viewMode) ? viewMode : null }) : { preferredMode: isCourseLearningMode(viewMode) ? viewMode : courseMode, initialContentId: contentId || null, bookmarkRestore: "position" as const };
   const poster = await signCourseMediaUrl(course.cover || course.thumbnailPath || courseImageFor(course.slug));
   const tutorAvailability = await getTutorAvailability(course.slug);
+  // P4: the study breadcrumb shows the Admin localized name and links by stable key.
+  const resolvedCategory = resolveCourseCategory(course, await getAdminCatalogue());
   return <main className="portal-page portal-public-lesson-page">
     <PortalHeader locale={locale} active="courses" signedIn displayName={user.nickname} avatarUrl={user.avatarPath ? "/api/my-learning/avatar" : undefined} />
-    <PreviewLessonView {...entry} completedLessonIds={study?.completedLessonIds || []} bookmarkSnapshot={bookmarkSnapshot} bookmarkOwnerId={user.id} explorationData={courseExploration(course)} assessmentAvailability={lessonAssessmentAvailability(lesson)} completedContentIds={study?.completedContentIds || []} key={`${locale}:${lesson.id}`} locale={locale} courseId={course.id} courseTitle={course.title} category={course.category || ""} description={lesson.summary?.trim() || ""}
+    <PreviewLessonView {...entry} completedLessonIds={study?.completedLessonIds || []} bookmarkSnapshot={bookmarkSnapshot} bookmarkOwnerId={user.id} explorationData={courseExploration(course)} assessmentAvailability={lessonAssessmentAvailability(lesson)} completedContentIds={study?.completedContentIds || []} key={`${locale}:${lesson.id}`} locale={locale} courseId={course.id} courseTitle={course.title} category={resolvedCategory ? resolvedCategory.localized[locale]?.name || resolvedCategory.name : ""} categoryKey={resolvedCategory?.name} description={lesson.summary?.trim() || ""}
       lesson={{ id: lesson.id, title: lesson.title, body: lesson.body, durationMinutes: lesson.durationMinutes, contents: lesson.contents, preview: lesson.preview }} outline={previewLessonOutline(course, locale, true)} poster={poster} entitled tutorOnline={tutorAvailability.online}
       studyEndpoint="/api/study/events" initialCompleted={study?.completedLessonIds.includes(lesson.id) || false} nextHref={nextLessonHref(locale, course.id, lessons, lesson.id)} />
   </main>;

@@ -27,7 +27,7 @@ await store.verifyEmailToken(await store.issueEmailVerificationToken(user.id));
 const session = await store.createSession(user.id);
 const data = await store.ensureProductData();
 const course = data.courses[0];
-course.status = "published"; course.title = "The Art of Seeing"; course.category = "Science";
+course.status = "published"; course.title = "The Art of Seeing"; course.categoryKey = "Science";
 course.description = "Learn to observe a work of art with attention, curiosity and confidence.";
 course.cover = "/portal/course-study.jpg";
 course.sections = [{ id: "preview-section", title: "Observation", lessons: [

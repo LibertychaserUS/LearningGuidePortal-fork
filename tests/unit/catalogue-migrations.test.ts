@@ -23,7 +23,7 @@ function course(id: string, title = id): ProductCourse {
     slug: id,
     title,
     description: `${title} description`,
-    category: "European Humanities",
+    categoryKey: "European Humanities",
     thumbnailPath: null,
     status: "published",
     createdAt: "2026-01-01T00:00:00.000Z",

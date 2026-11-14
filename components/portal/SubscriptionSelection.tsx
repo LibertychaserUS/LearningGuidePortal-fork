@@ -6,16 +6,49 @@ import { PortalButton } from "./ui/PortalButton";
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SubscriptionSelectionState } from "@/contracts/subscription-selection";
 import type { UpgradeQuoteDisplay } from "@/contracts/stripe-upgrade";
+import { normaliseCategoryKey } from "@/lib/coursePage";
 import { getMessages } from "@/lib/i18n/messages";
 import { formatPlanPrice } from "@/lib/planPricing";
+import type { SubscriptionCategory } from "@/lib/subscriptionCategoryLabel";
 import { PricingPlans } from "./PricingPlans";
 import { PurchasePanel } from "./PurchasePanel";
 
-type Props = Parameters<typeof PricingPlans>[0] & { selection: SubscriptionSelectionState };
+type PricingPlansProps = Parameters<typeof PricingPlans>[0];
+type Props = Omit<PricingPlansProps, "categories"> & {
+  selection: SubscriptionSelectionState;
+  /**
+   * Admin catalogue categories (stable `name` + localized labels), not the
+   * retired Portal CMS list. `PricingPlans` only reads `id` and `labels`, which
+   * this shape provides; the cast widens the legacy `PortalCategory` union.
+   */
+  categories: SubscriptionCategory[];
+};
 const dateLabel = (locale: Props["locale"], date: string) => new Date(date).toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** Stable-key identity of owned categories (P5): trimmed, case-insensitive, same rule as the backend. */
+function ownedCategoryKeySet(selection: SubscriptionSelectionState): Set<string> {
+  return new Set(selection.ownedCategoryIds.map(normaliseCategoryKey).filter((key): key is string => Boolean(key)));
+}
+
+function ownsCategory(keys: ReadonlySet<string>, id: string | null | undefined): boolean {
+  const key = normaliseCategoryKey(id);
+  return Boolean(key && keys.has(key));
+}
+
+/** One stable-key comparison for category ids, course keys and plan scopes (P3/P5). */
+function sameCategoryKey(left: string | null | undefined, right: string | null | undefined): boolean {
+  const a = normaliseCategoryKey(left);
+  const b = normaliseCategoryKey(right);
+  return Boolean(a && b && a === b);
+}
+
+/** Plan scope matching follows the backend's stable-key rule (`scopeId || category`). */
+function planMatchesCategory(plan: { scopeId?: string | null; category?: string | null }, id: string | undefined): boolean {
+  return sameCategoryKey(plan.scopeId || plan.category, id);
+}
 
 function OwnedChip({ children, label }: { children: React.ReactNode; label?: string }) {
   return <span className="pricing-owned-chip">{children}{label && <small>{label}</small>}</span>;
@@ -26,7 +59,7 @@ export function SubscriptionSelection(props: Parameters<typeof SubscriptionSelec
 }
 
 function SubscriptionSelectionContent(props: Props) {
-  if (props.selection.kind === "none") return <PricingPlans {...props}/>;
+  if (props.selection.kind === "none") return <PricingPlans {...props} categories={props.categories as unknown as PricingPlansProps["categories"]}/>;
   if (props.selection.kind === "everything" || props.selection.kind === "all_categories") return <SubscriptionSummary {...props}/>;
   return <ExpandedSelection {...props}/>;
 }
@@ -36,6 +69,8 @@ function SubscriptionSummary({ locale, selection, categories, courseTitles }: Pr
   const everything = selection.everything;
   const manage = `/${locale}/account/my-learning/subscription`;
   const price = everything?.amountMinor != null ? formatPlanPrice(locale, { amountMinor: everything.amountMinor, currency: everything.currency }) : null;
+  const ownedKeys = ownedCategoryKeySet(selection);
+  const owned = categories.filter(category => ownsCategory(ownedKeys, category.id));
   const coverage = copy.coverage.replace("{count}", String(categories.length));
   const description = everything ? `${coverage} · ${everything.paymentPending ? copy.paymentPending : everything.renewal && price
     ? copy.nextPayment.replace("{date}", dateLabel(locale, everything.validTo)).replace("{price}", price)
@@ -45,10 +80,10 @@ function SubscriptionSummary({ locale, selection, categories, courseTitles }: Pr
       <Image src="/portal/subscription-selection/check.svg" width={48} height={48} alt=""/>
       <div className={everything ? "pricing-owned-copy" : "pricing-owned-copy pricing-owned-copy--categories"}>
         <h1>{everything ? copy.everythingOwned : copy.allOwned}</h1><p>{description}</p>
-        {!everything && <div className="pricing-owned-chips">{categories.map(category => <OwnedChip key={category.id} label={copy.owned}>{category.labels[locale]}</OwnedChip>)}</div>}
+        {!everything && <div className="pricing-owned-chips">{owned.map(category => <OwnedChip key={category.id} label={copy.owned}>{category.labels[locale]}</OwnedChip>)}</div>}
       </div><a href={manage}>{copy.manage}</a>
     </section>
-    <div className="pricing-owned-benefits"><section><p>{copy.categories}</p><strong>{categories.length} / {categories.length}</strong><p>{categories.map(category => category.labels[locale]).join(", ")}</p></section>
+    <div className="pricing-owned-benefits"><section><p>{copy.categories}</p><strong>{owned.length} / {categories.length}</strong><p>{owned.map(category => category.labels[locale]).join(", ")}</p></section>
       <section><p>{copy.courses}</p><strong>{copy.courseCount.replace("{count}", String(courseTitles.length))}</strong><p>{copy.newCourses} · <a href={`/${locale}/portal/courses`}>{getMessages(locale).pricingDesign.viewAll}</a></p></section></div>
   </div>;
 }
@@ -56,18 +91,19 @@ function SubscriptionSummary({ locale, selection, categories, courseTitles }: Pr
 function ExpandedSelection({ locale, plans, categories, courseTitles, selection, selectedCategoryId, selectedPlanId, copy }: Props) {
   const text = getMessages(locale).subscriptionSelection;
   const selected = plans.find(plan => plan.id === selectedPlanId && plan.available !== false && !plan.alreadySubscribed);
+  const ownedKeys = useMemo(() => ownedCategoryKeySet(selection), [selection]);
   const [term, setTerm] = useState<6 | 12>(selected?.termMonths || 6);
-  const selectable = useCallback((id?: string) => !selection.ownedCategoryIds.includes(id || "") && plans.some(plan => plan.scope === "category" && plan.device === "pc" && plan.termMonths === term && (plan.scopeId || plan.category) === id && plan.available !== false && !plan.alreadySubscribed), [plans, term, selection.ownedCategoryIds]);
+  const selectable = useCallback((id?: string) => Boolean(id) && !ownsCategory(ownedKeys, id) && plans.some(plan => plan.scope === "category" && plan.device === "pc" && plan.termMonths === term && planMatchesCategory(plan, id) && plan.available !== false && !plan.alreadySubscribed), [plans, term, ownedKeys]);
   const [category, setCategory] = useState(selected?.scope === "category" ? selected.scopeId || selected.category || undefined : selectable(selectedCategoryId) ? selectedCategoryId : categories.find(item => selectable(item.id))?.id);
   useEffect(() => { setCategory(current => selectable(current) ? current : categories.find(item => selectable(item.id))?.id); }, [categories, selectable]);
   const one = selection.kind === "one_category";
   const [selectedScope, setSelectedScope] = useState<"everything" | "category">(!one || selected?.scope === "category" || selectable(selectedCategoryId) ? "category" : "everything");
-  const owned = categories.filter(item => selection.ownedCategoryIds.includes(item.id));
-  const remaining = categories.filter(item => !selection.ownedCategoryIds.includes(item.id));
-  const categoryPlan = plans.find(plan => plan.scope === "category" && plan.device === "pc" && plan.termMonths === term && (plan.scopeId || plan.category) === category);
+  const owned = categories.filter(item => ownsCategory(ownedKeys, item.id));
+  const remaining = categories.filter(item => !ownsCategory(ownedKeys, item.id));
+  const categoryPlan = plans.find(plan => plan.scope === "category" && plan.device === "pc" && plan.termMonths === term && planMatchesCategory(plan, category));
   const categoryPrice = categoryPlan?.available !== false && categoryPlan ? formatPlanPrice(locale, categoryPlan) : null;
-  const categoryName = categories.find(item => item.id === category)?.labels[locale] || copy.category;
-  const categoryCourses = courseTitles.filter(course => course.category === category);
+  const categoryName = categories.find(item => sameCategoryKey(item.id, category))?.labels[locale] || copy.category;
+  const categoryCourses = courseTitles.filter(course => sameCategoryKey(course.category, category));
   const source = selection.categorySubscription;
   const everythingPlan = plans.find(plan => plan.scope === "everything" && plan.device === "pc" && plan.termMonths === source?.termMonths);
   const [quote, setQuote] = useState<UpgradeQuoteDisplay | null>(null);
@@ -123,7 +159,7 @@ function ExpandedSelection({ locale, plans, categories, courseTitles, selection,
         <div className="pricing-card-tags"><span>{copy.recommended}</span><span className="pricing-saving">{text.extraCategories.replace("{count}", String(remaining.length))}</span></div>
         <header className="pricing-card-heading"><h2>{text.upgrade}</h2><p>{source ? text.upgradeDescription.replace("{count}", String(remaining.length)).replace("{date}", dateLabel(locale, source.validTo)) : text.upgradeUnavailable}</p></header>
         <div className="pricing-selection-price" aria-live="polite"><div className="pricing-card-price"><strong>{estimate}</strong></div><small>{busy && !quote ? text.quoteLoading : text.estimate.replace("{days}", String(source?.remainingDays || 0))}</small></div>
-        <div className="pricing-card-includes"><p>{text.allIncluded}</p><div className="pricing-category-switch pricing-category-switch--all">{[...owned, ...remaining].map(item => selection.ownedCategoryIds.includes(item.id) ? <OwnedChip key={item.id} label={text.owned}>{item.labels[locale]}</OwnedChip> : <span className="pricing-included-chip" key={item.id}>{item.labels[locale]}</span>)}</div>
+        <div className="pricing-card-includes"><p>{text.allIncluded}</p><div className="pricing-category-switch pricing-category-switch--all">{[...owned, ...remaining].map(item => ownsCategory(ownedKeys, item.id) ? <OwnedChip key={item.id} label={text.owned}>{item.labels[locale]}</OwnedChip> : <span className="pricing-included-chip" key={item.id}>{item.labels[locale]}</span>)}</div>
           <div className="pricing-card-course-list"><p>{copy.courseSummary.replace("{courses}", String(courseTitles.length)).replace("{categories}", String(categories.length))} · <a href={`/${locale}/portal/courses`}>{copy.viewAll}</a></p><small>{copy.newEverything}</small></div></div>
         <ul className="pricing-card-benefits"><li><span>{copy.points}</span><strong>{points.toLocaleString(locale, { useGrouping: true })} (+{addedPoints.toLocaleString(locale, { useGrouping: true })})</strong></li></ul>
         <div className="pricing-upgrade-action">{blockingOrderId && <p><Link href={`/${locale}/account/my-learning/subscription?orderId=${encodeURIComponent(blockingOrderId)}#order-${encodeURIComponent(blockingOrderId)}`}>{getMessages(locale).orderManagement.viewOrders}</Link></p>}{error && <><p role="alert" className="portal-form-error">{error}</p><PortalButton htmlType="button" disabled={busy} onClick={() => setRefresh(value => value + 1)}>{text.quoteRetry}</PortalButton></>}{!source?.canUpgrade ? <p role="status">{text.upgradeUnavailable}</p> : (!everythingPlan || everythingPlan.available === false) && <p role="status">{copy.unavailable}</p>}<PortalButton htmlType="button" loading={busy} disabled={busy || !quote || !source?.canUpgrade || !everythingPlan || everythingPlan.available === false} onClick={() => void upgrade()}>{busy ? getMessages(locale).learning.processing : text.upgradeAction.replace("{price}", estimate)}</PortalButton></div>
@@ -132,7 +168,7 @@ function ExpandedSelection({ locale, plans, categories, courseTitles, selection,
         {one && <div className="pricing-card-tags"/>}
         <header className="pricing-card-heading"><h2>{one ? text.addCategory : text.addTitle.replace("{category}", categoryName)}</h2><p>{one ? text.addDescription : text.lastDescription}</p></header>
         <div className="pricing-selection-price"><div className="pricing-selection-price-row"><div className="pricing-card-price"><strong>{categoryPrice || "—"}</strong></div>{termSwitch}</div></div>
-        <div className="pricing-card-includes"><p>{one ? copy.chooseCategory : text.lastCategory}</p><div className="pricing-category-switch" role="group" aria-label={copy.category}>{[...owned, ...remaining].map(item => selection.ownedCategoryIds.includes(item.id) ? <OwnedChip key={item.id} label={text.owned}>{item.labels[locale]}</OwnedChip> : <PortalButton htmlType="button" key={item.id} disabled={!selectable(item.id)} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.labels[locale]}</PortalButton>)}</div>
+        <div className="pricing-card-includes"><p>{one ? copy.chooseCategory : text.lastCategory}</p><div className="pricing-category-switch" role="group" aria-label={copy.category}>{[...owned, ...remaining].map(item => ownsCategory(ownedKeys, item.id) ? <OwnedChip key={item.id} label={text.owned}>{item.labels[locale]}</OwnedChip> : <PortalButton htmlType="button" key={item.id} disabled={!selectable(item.id)} aria-pressed={category === item.id} onClick={() => setCategory(item.id)}>{item.labels[locale]}</PortalButton>)}</div>
           <div className="pricing-card-course-list"><p>{copy.categorySummary.replace("{count}", String(categoryCourses.length)).replace("{titles}", categoryCourses.map(item => item.title).join(", "))}</p><small>{copy.newCategory}</small></div></div>
         <ul className="pricing-card-benefits"><li><span>{copy.points}</span><strong>{(categoryPlan?.aiPoints ?? 0).toLocaleString(locale)}</strong></li></ul>
         {one && <div className="pricing-upgrade-note"><Image src="/portal/subscription-selection/note.svg" width={16} height={16} alt=""/><p>{text.upgradeNote}</p></div>}

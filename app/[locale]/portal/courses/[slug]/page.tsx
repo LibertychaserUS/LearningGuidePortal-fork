@@ -8,6 +8,8 @@ import { localeFrom } from "@/lib/i18n/config";
 import { courseCategoryPlan, courseDurationParts, courseLessonDuration } from "@/lib/courseDetailPresentation";
 import { formatPlanPrice } from "@/lib/planPricing";
 import { getCoursePage, getProductCourse, getCourseLearningMode, listPlans } from "@/services/productStore";
+import { getAdminCatalogue } from "@/services/adminCatalogueCache";
+import { resolveCourseCategory } from "@/lib/coursePage";
 import { CourseLearningModeDialog } from "@/components/portal/CourseLearningModeDialog";
 import { availableCourseLearningModes } from "@/lib/courseLearningMode";
 import { CourseThumbnail } from "@/components/portal/CourseThumbnail";
@@ -30,7 +32,10 @@ export default async function CourseDetailPage({ params, searchParams }: {
   const { locale: rawLocale, slug } = await params;
   const locale = localeFrom(rawLocale);
   const user = await currentProductUser();
-  const [page, course] = await Promise.all([getCoursePage(slug, user?.id), getProductCourse(slug)]);
+  const [page, course, catalogue] = await Promise.all([getCoursePage(slug, user?.id), getProductCourse(slug), getAdminCatalogue()]);
+  // P3/P4: the one resolver decides the category label; the legacy store projection never leaks.
+  const resolvedCategory = resolveCourseCategory(course, catalogue);
+  const categoryLabel = resolvedCategory ? resolvedCategory.localized[locale]?.name || resolvedCategory.name : null;
   const savedMode = user && course ? await getCourseLearningMode(user.id, course.id) : null;
   // A visitor signs in to return to the course detail, not to replay the
   // unauthenticated lesson-entry redirect. Preview remains an explicit action.
@@ -58,7 +63,7 @@ export default async function CourseDetailPage({ params, searchParams }: {
     ? `${courseDetailHref}?lessonEntry=${encodeURIComponent(actionLesson.lessonId)}`
     : `/${locale}/account/learn/${encodeURIComponent(course.id)}?lessonId=${encodeURIComponent(actionLesson.lessonId)}` : null;
   const plans = page.pageState === "available" && !hasCourseAccess ? await listPlans() : [];
-  const plan = courseCategoryPlan(plans, identity?.track || "");
+  const plan = courseCategoryPlan(plans, resolvedCategory?.name || "");
   const pricingHref = `/${locale}/subscription?courseId=${encodeURIComponent(course?.id || slug)}${plan ? `&planId=${encodeURIComponent(plan.id)}` : ""}`;
   const price = plan ? formatPlanPrice(locale, plan) : null;
   const signedCover = await signCourseMediaUrl(course?.cover || course?.thumbnailPath || "");
@@ -86,13 +91,13 @@ export default async function CourseDetailPage({ params, searchParams }: {
         <nav className={styles.breadcrumb} aria-label={detail.breadcrumb}>
           <Link href={`/${locale}/portal`}>{detail.home}</Link><Image src={asset("chevron-right")} alt="" width={12} height={12} />
           <Link href={catalogHref}>{copy.navigation.courses}</Link><Image src={asset("chevron-right")} alt="" width={12} height={12} />
-          <Link href={`${catalogHref}?category=${encodeURIComponent(identity.track)}`}>{identity.track}</Link><Image src={asset("chevron-right")} alt="" width={12} height={12} />
+          {resolvedCategory ? <><Link href={`${catalogHref}?category=${encodeURIComponent(resolvedCategory.name)}`}>{categoryLabel}</Link><Image src={asset("chevron-right")} alt="" width={12} height={12} /></> : null}
           <span aria-current="page">{identity.title}</span>
         </nav>
         <section className={styles.hero}>
           <div className={styles.cover}><CourseThumbnail slug={course?.slug || slug} title={identity.title} src={signedCover} /></div>
           <div className={styles.heroCopy}>
-            <p className={styles.tag} data-course-track={identity.track}>{identity.track}</p>
+            {resolvedCategory ? <p className={styles.tag} data-course-track={resolvedCategory.name}>{categoryLabel}</p> : null}
             <h1 data-course-title={identity.title}>{identity.title}</h1>
             <p className={styles.summary}>{course?.subtitle || course?.description || ""}</p>
             <div className={styles.stats} data-preview-available={identity.previewAvailable ? "true" : "false"}>

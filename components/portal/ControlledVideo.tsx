@@ -5,6 +5,9 @@ import { Play, Pause, Volume2, VolumeX, Maximize, PictureInPicture2, ChevronDown
 import { lessonMessages, type LessonLocale } from '@/messages/lesson-authoring';
 import { playbackDuration } from '@/lib/videoLessonCompletion';
 
+// Keep one ordered list for the select options and its keyboard stepping.
+const playbackSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
 // Fullscreen the container so the browser never substitutes its native video toolbar.
 export const ControlledVideo = forwardRef<HTMLVideoElement, VideoHTMLAttributes<HTMLVideoElement> & { locale: LessonLocale; fullscreenOverlay?: ReactNode; dialogOverlay?: ReactNode; hideFullscreen?: boolean; onFullscreenChange?: (active:boolean)=>void }>(function ControlledVideo({ locale, fullscreenOverlay, dialogOverlay, hideFullscreen = false, onFullscreenChange, onPlay, onPause, onEnded, onTimeUpdate, onLoadedMetadata, onDurationChange, onVolumeChange, onRateChange, onSeeked, onEmptied, ...props }, ref) {
   const media = useRef<HTMLVideoElement>(null), container = useRef<HTMLDivElement>(null);
@@ -245,8 +248,14 @@ export const ControlledVideo = forwardRef<HTMLVideoElement, VideoHTMLAttributes<
       </div>
       <span className="la-video-speed">
         <span aria-hidden="true">{rate === 1 ? t.videoSpeedDefault : `${rate}×`}</span><ChevronDown size={12} aria-hidden="true" />
-        <select aria-label={t.videoSpeed} title={t.videoSpeed} value={rate} onChange={event => { if (media.current) { media.current.playbackRate = Number(event.target.value); setRate(media.current.playbackRate); } }}>
-          {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(speed => <option key={speed} value={speed}>{speed === 1 ? t.videoNormalSpeed : `${speed}×`}</option>)}
+        <select aria-label={t.videoSpeed} title={t.videoSpeed} value={rate} onChange={event => { if (media.current) { media.current.playbackRate = Number(event.target.value); setRate(media.current.playbackRate); } }} onKeyDown={event => {
+          if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+          event.preventDefault();
+          const index = playbackSpeeds.indexOf(rate);
+          const next = playbackSpeeds[Math.max(0, Math.min(playbackSpeeds.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))];
+          if (media.current) { media.current.playbackRate = next; setRate(next); }
+        }}>
+          {playbackSpeeds.map(speed => <option key={speed} value={speed}>{speed === 1 ? t.videoNormalSpeed : `${speed}×`}</option>)}
         </select>
       </span>
       <button type="button" aria-label={pipActive ? t.videoPipExit : t.videoPipEnter} title={!pipSupported ? t.videoPipUnsupported : pipActive ? t.videoPipExit : t.videoPipEnter} aria-pressed={pipActive} disabled={!pipSupported || !duration} onClick={() => void pictureInPicture()}><PictureInPicture2 size={18}/></button>

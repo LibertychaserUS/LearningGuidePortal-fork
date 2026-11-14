@@ -42,7 +42,6 @@ test("LEARN-03: a non-Epicureanism course must not fall back to Epicurus copy", 
   const created = await store.createCourseForOperator({
     title: "Stoicism Basics",
     description: "Virtue is the sole good.",
-    category: "European Humanities",
   });
   const lesson = await store.addLessonToCourse({
     courseId: created.id,

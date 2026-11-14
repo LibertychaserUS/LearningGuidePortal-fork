@@ -56,7 +56,7 @@ before(async () => {
   const now = new Date().toISOString();
   const later = new Date(Date.now() + 86_400_000).toISOString();
   data.users.push({ id: "key-host", email: "key-host@example.test", passwordHash: null, nickname: "Anna", locale: "en-GB", status: "active", emailVerifiedAt: now, createdAt: now, role: "student" });
-  data.courses.push({ id: "key-course", slug: "german-history", title: "German History", description: "Course", status: "published", sections: [], createdAt: now, updatedAt: now });
+  data.courses.push({ id: "key-course", slug: "german-history", title: "German History", description: "Course", categoryKey: null, status: "published", sections: [], createdAt: now, updatedAt: now });
   data.entitlements.push({ id: "key-access", userId: "key-host", courseId: "key-course", state: "active", source: "purchase", validTo: later, scope: "course", scopeId: "key-course", device: "pc" });
   await files.atomicWriteJson(path.join(files.systemRoot(), "learning_guide", "product.json"), data);
   token = (await store.createSession("key-host")).token;

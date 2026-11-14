@@ -31,9 +31,11 @@ import { textLessonPreviewPolicy } from "@/lib/textLessonPreview";
 import type { AssessmentAvailability, LessonPreviewConfiguration } from "@/contracts/lesson-resources";
 import type { ExplorationDisplay } from "@/contracts/exploration";
 
-export function PreviewLessonView({ bookmarkRestore, completedLessonIds = [], bookmarkSnapshot, bookmarkOwnerId, locale, courseId, courseTitle, category, description, lesson, outline, poster, trialGate, textPreview, initialCompleted, completedContentIds, nextHref, entitled, tutorOnline = true, preferredMode = null, initialContentId = null, studyEndpoint = "/api/study/preview", explorationData, assessmentAvailability }: {
+export function PreviewLessonView({ bookmarkRestore, completedLessonIds = [], bookmarkSnapshot, bookmarkOwnerId, locale, courseId, courseTitle, category, categoryKey, description, lesson, outline, poster, trialGate, textPreview, initialCompleted, completedContentIds, nextHref, entitled, tutorOnline = true, preferredMode = null, initialContentId = null, studyEndpoint = "/api/study/preview", explorationData, assessmentAvailability }: {
   bookmarkRestore?: LessonBookmarkRestore; completedLessonIds?: string[]; bookmarkSnapshot?: LessonBookmarkSnapshot; bookmarkOwnerId?: string;
   locale: Locale; courseId: string; courseTitle: string; category: string; description: string;
+  /** P4: the stable category key for `?category=`; `category` stays the localized label shown. */
+  categoryKey?: string;
   lesson: { id: string; title: string; body: string; durationMinutes: number; contents?: LessonContent[]; preview?: LessonPreviewConfiguration };
   explorationData?: ExplorationDisplay; assessmentAvailability?: AssessmentAvailability;
   outline: ReturnType<typeof previewLessonOutline>; poster: string; trialGate?: TrialGate;
@@ -163,7 +165,9 @@ export function PreviewLessonView({ bookmarkRestore, completedLessonIds = [], bo
       setVideoNavigation(undefined);
       setPlayingId(null);
       const switchHref = new URL(destination.href, window.location.origin);
-      switchHref.searchParams.set("modeSwitch", "1");
+      // Same-lesson switches are already applied in place; only a cross-lesson navigation needs
+      // the entry resolver to honour the requested mode over the saved bookmark.
+      if (destination.lessonId !== lesson.id) switchHref.searchParams.set("modeSwitch", "1");
       router.push(switchHref.pathname + switchHref.search + switchHref.hash);
     } catch { if (modeMounted.current) setModeError(messages.courseLearningMode.saveError); }
     finally { modeSaveLock.current = false;if (modeMounted.current) setModeSaving(false); }
@@ -197,7 +201,7 @@ export function PreviewLessonView({ bookmarkRestore, completedLessonIds = [], bo
   return <div ref={pageRef} className={`${styles.page} ${mode === "text" ? styles.textPage : ""}`} data-course-id={courseId} data-lesson-id={lesson.id}>
     <nav className={styles.breadcrumb} aria-label={messages.courseDetailDesign.breadcrumb}>
       <Link href={`/${locale}/portal/courses`}>{messages.portal.navigation.courses}</Link><span aria-hidden="true">/</span>
-      {category && <><Link href={`/${locale}/portal/courses?category=${encodeURIComponent(category)}`}>{category}</Link><span aria-hidden="true">/</span></>}
+      {category && <><Link href={`/${locale}/portal/courses?category=${encodeURIComponent(categoryKey || category)}`}>{category}</Link><span aria-hidden="true">/</span></>}
       <Link href={courseHref}>{courseTitle}</Link>
       <span aria-hidden="true">/</span><span aria-current="page">{messages.courseDetailDesign.lesson}</span>
     </nav>

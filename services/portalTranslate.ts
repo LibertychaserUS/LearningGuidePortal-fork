@@ -1,8 +1,10 @@
 import type { Locale } from "@/lib/i18n/config";
 import {
   applyTranslatedBanners,
-  applyTranslatedCategories,
+  CategoriesManagedInAdminError,
+  defaultPortalContent,
   otherLocale,
+  portalCategoriesUnchanged,
   sourceCopyFingerprint,
   translationIsCurrent,
   withSharedBannerImages,
@@ -12,7 +14,6 @@ import {
 
 type TranslationPayload = {
   banners: BannerCopy[];
-  categories: string[];
 };
 
 const RESPONSE_MAX_BYTES = 128 * 1024;
@@ -27,27 +28,25 @@ function boundedText(value: unknown, limit: number): value is string {
 }
 
 function validateContent(value: unknown): asserts value is PortalContent {
-  if (!object(value) || !object(value.banners) || !Array.isArray(value.categories) || value.categories.length !== 3) throw new Error("Invalid portal translation content.");
+  if (!object(value) || !object(value.banners)) throw new Error("Invalid portal translation content.");
+  // P6: category display names are Admin-owned; a payload may carry the managed list unchanged,
+  // but any category change is rejected before talking to the translation provider.
+  if (value.categories !== undefined && !portalCategoriesUnchanged(value.categories, defaultPortalContent.categories)) {
+    throw new CategoriesManagedInAdminError();
+  }
   for (const locale of ["en-GB", "zh-CN"]) {
     const banners = value.banners[locale];
     if (!Array.isArray(banners) || banners.length !== 3 || banners.some(banner => !object(banner) || COPY_KEYS.some(key => !boundedText(banner[key], 500)) || typeof banner.image !== "string" || banner.image.length > 2048 || typeof banner.href !== "string" || banner.href.length > 2048)) throw new Error("Provide three complete banners in each language.");
-    if (value.categories.some(category => !object(category) || !object(category.labels) || !boundedText(category.labels[locale], 80))) throw new Error("Provide complete category labels in each language.");
   }
-  const ids = new Set(value.categories.map(category => category.id));
-  if (ids.size !== 3 || ["Chinese Humanities", "European Humanities", "Science"].some(id => !ids.has(id))) throw new Error("Provide each supported category exactly once.");
 }
 
 function validatePayload(value: unknown, content: PortalContent, source: Locale): TranslationPayload {
-  if (!object(value) || !Array.isArray(value.banners) || value.banners.length !== content.banners[source].length || !Array.isArray(value.categories) || value.categories.length !== content.categories.length) throw new Error("Translation must contain arrays covering every banner and category.");
+  if (!object(value) || !Array.isArray(value.banners) || value.banners.length !== content.banners[source].length) throw new Error("Translation must contain arrays covering every banner.");
   const banners = value.banners.map(copy => {
     if (!object(copy) || COPY_KEYS.some(key => !boundedText(copy[key], 500))) throw new Error("Translation returned incomplete banner copy.");
     return Object.fromEntries(COPY_KEYS.map(key => [key, (copy[key] as string).trim()])) as BannerCopy;
   });
-  const categories = value.categories.map(label => {
-    if (!boundedText(label, 80)) throw new Error("Translation returned an invalid category label.");
-    return label.trim();
-  });
-  return { banners, categories };
+  return { banners };
 }
 
 async function readProviderBody(response: Response): Promise<unknown> {
@@ -129,15 +128,14 @@ async function requestTranslation(content: PortalContent, source: Locale, target
     messages: [
       {
         role: "system",
-        content: "You translate Learning Guide homepage copy. Return JSON only with keys banners (array of {eyebrow,title,text,cta}) and categories (array of short labels). Keep brand names Learning Guide, My Learning and AI Tutor. Do not add commentary."
+        content: "You translate Learning Guide homepage copy. Return JSON only with key banners (array of {eyebrow,title,text,cta}). Keep brand names Learning Guide, My Learning and AI Tutor. Do not add commentary."
       },
       {
         role: "user",
         content: JSON.stringify({
           from: languageName(source),
           to: languageName(target),
-          banners: content.banners[source].map(({ eyebrow, title, text, cta }) => ({ eyebrow, title, text, cta })),
-          categories: content.categories.map((item) => item.labels[source])
+          banners: content.banners[source].map(({ eyebrow, title, text, cta }) => ({ eyebrow, title, text, cta }))
         })
       }
     ]
@@ -157,7 +155,8 @@ export async function translatePortalContent(content: PortalContent, source: Loc
     ...shared.banners,
     [target]: applyTranslatedBanners(shared.banners[source], payload.banners, target)
   };
-  const categories = applyTranslatedCategories(shared.categories, payload.categories, target);
+  // P6: category labels are never translated here; the Admin catalogue localizes display names.
+  const categories = shared.categories;
   const next = {
     ...shared,
     banners,

@@ -54,7 +54,7 @@ test("ownership and lifecycle routes retain one login, prevent escalation and is
   assert.equal((await store.getUserBySessionToken(other.token))!.role, "student");
   assert.deepEqual(course.authorIds, [teacher.user.id]);
   assert.equal((await catalogue.POST(request(teacher.token, "POST", { name: "Denied catalogue" }))).status, 403);
-  assert.equal((await catalogue.POST(request(operator.token, "POST", { name: "Allowed catalogue" }))).status, 201);
+  assert.equal((await catalogue.POST(request(operator.token, "POST", { name: "Allowed catalogue" }))).status, 410, "P7: legacy catalogue writes are managed in Admin");
   assert.equal((await collection.POST(request(teacher.token, "POST", { title: "Cross origin" }, "https://other.test"))).status, 403);
   const second = await store.createCourseForOperator({ title: "Other assigned course" }, operator.user.id);
   await store.assignCourseOwner(operator.user.id, second.id, { email: other.user.email!, expectedUpdatedAt: second.updatedAt });

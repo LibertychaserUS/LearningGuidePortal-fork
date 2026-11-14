@@ -1,5 +1,18 @@
 import type { LessonContent } from "./lesson-content";
 
+/**
+ * P7 — the Portal backoffice catalogue write endpoints are closed; categories are created and
+ * maintained in Admin only. The read-only transition keeps GET available.
+ */
+export class CatalogueManagedInAdminError extends Error {
+  readonly code = "CATALOGUE_MANAGED_IN_ADMIN";
+  readonly status = 410;
+  constructor() {
+    super("Catalogue categories are managed in the Admin course management.");
+    this.name = "CatalogueManagedInAdminError";
+  }
+}
+
 export type CourseMetadata = {
   subtitle?: string;
   cover?: string | null;

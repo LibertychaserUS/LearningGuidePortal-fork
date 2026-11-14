@@ -98,13 +98,6 @@ export function PortalContentEditor({ initial, locale }: { initial: PortalConten
     }));
   }
 
-  function editCategory(language: Locale, index: number, value: string) {
-    setContent((current) => ({
-      ...current,
-      categories: current.categories.map((item, i) => i === index ? { ...item, labels: { ...item.labels, [language]: value } } : item)
-    }));
-  }
-
   async function save(event: FormEvent) {
     event.preventDefault();
     if (pickerIndex.current !== null) return;
@@ -212,13 +205,6 @@ export function PortalContentEditor({ initial, locale }: { initial: PortalConten
         </div>
       </fieldset>;
     })}
-    <fieldset>
-      <legend>{copy.categories}</legend>
-      {content.categories.map((category, index) => <div key={category.id} className="portal-i18n-grid">
-        <label>{category.id} · {copy.english}<Input required disabled={busy || picker !== null} value={category.labels["en-GB"]} onChange={(event) => editCategory("en-GB", index, event.target.value)} /></label>
-        <label>{category.id} · {copy.chinese}<Input required disabled={busy || picker !== null} value={category.labels["zh-CN"]} onChange={(event) => editCategory("zh-CN", index, event.target.value)} /></label>
-      </div>)}
-    </fieldset>
     <label>{copy.countries}<Input.TextArea disabled={busy || picker !== null} value={content.countries.join("\n")} rows={8} onChange={(event) => setContent({ ...content, countries: event.target.value.split("\n") })} /></label>
     <label>{copy.support}<Input disabled={busy || picker !== null} value={content.supportUrl} onChange={(event) => setContent({ ...content, supportUrl: event.target.value })} /></label>
     {error ? <p role="alert" className="portal-form-error">{error}</p> : null}

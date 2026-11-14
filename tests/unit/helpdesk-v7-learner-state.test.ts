@@ -12,7 +12,7 @@ const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
 const ME = "user_me";
 const OTHER = "user_other";
 
-const course = (id: string, extra: Partial<LearnerStateSources["courses"][number]> = {}) => ({ id, title: `Course ${id}`, status: "published" as const, category: "Science" as const, ...extra });
+const course = (id: string, extra: Partial<LearnerStateSources["courses"][number]> = {}) => ({ id, title: `Course ${id}`, status: "published" as const, categoryKey: "Science" as const, ...extra });
 const record = (courseId: string, extra: Partial<LearnerStateSources["studyRecords"][number]> = {}) => ({ userId: ME, courseId, progress: 0, totalSeconds: 0, updatedAt: at(-DAY), completedAt: null, ...extra });
 const entitlement = (courseId: string, extra: Partial<LearnerStateSources["entitlements"][number]> = {}) => ({ userId: ME, courseId, state: "active" as const, validTo: at(30 * DAY), scope: "course" as const, scopeId: courseId, ...extra });
 const plan = (extra: Partial<LearnerStateSources["subscriptions"][number]> = {}) => ({ userId: ME, state: "active" as const, source: "purchase" as const, validTo: at(30 * DAY), scope: "course" as const, device: "pc" as const, graceEndsAt: null, ...extra });
@@ -69,7 +69,7 @@ test("v7 learner state: plans are the learner's subscriptions, live first (lates
 
 test("v7 learner state: courses studied (status, progress, minutes, last studied) with access, then course-scope access never started", () => {
   const value = state({
-    courses: [course("c1"), course("c2", { category: "European Humanities" }), course("c3"), course("c4", { title: "x".repeat(200) }), course("c5", { status: "draft" })],
+    courses: [course("c1"), course("c2", { categoryKey: "European Humanities" }), course("c3"), course("c4", { title: "x".repeat(200) }), course("c5", { status: "draft" })],
     entitlements: [entitlement("*", { scope: "category", scopeId: "Science" }), entitlement("c4", { validTo: at(-HOUR) }), entitlement("c5"), entitlement("c2", { userId: OTHER })],
     studyRecords: [
       record("c1", { progress: 35.6, totalSeconds: 3_000, updatedAt: at(-2 * DAY - HOUR) }),

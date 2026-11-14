@@ -18,7 +18,7 @@ export function romanHistoryCourse(createdAt: string): ProductCourse {
     slug: "roman-history",
     title: "Roman History",
     description: "A short published course used as the catalogue example in the data-migration guide.",
-    category: "European Humanities",
+    categoryKey: "European Humanities",
     thumbnailPath: "/portal/course-book.jpg",
     status: "published",
     createdAt,

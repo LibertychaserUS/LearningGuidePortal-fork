@@ -146,17 +146,13 @@ test("LGTeacher: real draft route and file store enforce ownership, persistence,
   });
 });
 
-test("LGTeacher: catalogue mutations are real, operator-only, versioned and protect referenced subjects", async () => {
-  const category = await store.saveCatalogueEntry(users.operator.id, null, { name: "Regression category" });
-  const subject = await store.saveCatalogueEntry(users.operator.id, null, { name: "Regression subject", parentId: category.id });
+test("LGTeacher: the legacy catalogue API is read-only and course categories are managed in Admin (P7)", async () => {
+  // P7: the write entrance is closed for operators and still requires backoffice access.
+  await assert.rejects(store.saveCatalogueEntry(users.operator.id, null, { name: "Regression category" }), { code: "CATALOGUE_MANAGED_IN_ADMIN" });
   await assert.rejects(store.saveCatalogueEntry(users.teacher.id, null, { name: "Forbidden category" }), { code: "restricted" });
-  await assert.rejects(store.saveCatalogueEntry(users.operator.id, category.id, { name: category.name, status: "archived", expectedUpdatedAt: category.updatedAt }), { code: "inUse" });
-  const course = await store.createCourseForOperator({ title: "Catalogue references", categoryId: category.id, subjectId: subject.id }, users.teacher.id);
-  await assert.rejects(store.saveCatalogueEntry(users.operator.id, subject.id, { name: subject.name, status: "archived", expectedUpdatedAt: subject.updatedAt }), { code: "inUse" });
-  const renamed = await store.saveCatalogueEntry(users.operator.id, subject.id, { name: "Renamed subject", expectedUpdatedAt: subject.updatedAt });
-  await assert.rejects(store.saveCatalogueEntry(users.operator.id, subject.id, { name: "Stale rename", expectedUpdatedAt: subject.updatedAt }), { code: "conflict" });
-  await store.setCourseStatus(course.id, "archived", users.teacher.id, course.updatedAt);
-  const archived = await store.saveCatalogueEntry(users.operator.id, subject.id, { name: renamed.name, status: "archived", expectedUpdatedAt: renamed.updatedAt });
-  assert.equal(archived.status, "archived");
-  assert.equal((await persisted()).catalogue!.find(item => item.id === subject.id)!.name, "Renamed subject");
+  // P7: course metadata may not write a category; a new Portal course is unclassified until Admin binds it.
+  await assert.rejects(store.createCourseForOperator({ title: "Catalogue references", categoryId: "category-1" }, users.teacher.id), { code: "CATEGORIES_MANAGED_IN_ADMIN" });
+  assert.deepEqual(await store.getCourseCatalogue(users.operator.id), []);
+  const course = await store.createCourseForOperator({ title: "Catalogue references" }, users.teacher.id);
+  assert.equal((course as { categoryKey: string | null }).categoryKey, null);
 });

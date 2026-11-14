@@ -2,12 +2,12 @@ import type { OverviewDisplay, OverviewDisplayCourse } from "@/contracts/overvie
 import type { Locale } from "@/lib/i18n/config";
 import { availableCourseLearningModes } from "@/lib/courseLearningMode";
 import { courseKnowledgePoints } from "@/lib/knowledgeProgress";
-import { getLearningOverview, getPortalContent, getLessonBookmarks, listPublishedCourses, publicFirstLesson } from "./productStore";
+import { getLearningOverview, getLessonBookmarks, listPublishedCourses, publicFirstLesson } from "./productStore";
 import { latestLessonBookmark } from "@/lib/lessonBookmarkDisplay";
 import { signCourseMediaUrl } from "./persistence/s3";
 
 export async function getOverviewDisplay(userId: string, name: string, locale: Locale): Promise<OverviewDisplay> {
-  const [overview, courses, portal] = await Promise.all([getLearningOverview(userId), listPublishedCourses(), getPortalContent()]);
+  const [overview, courses] = await Promise.all([getLearningOverview(userId), listPublishedCourses()]);
   const catalogue = new Map(courses.map(course => [course.id, course]));
   const cards = await Promise.all([...overview.courses].sort((a,b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")).map(async (record): Promise<OverviewDisplayCourse | null> => {
     const course = catalogue.get(record.courseId);
@@ -28,7 +28,6 @@ export async function getOverviewDisplay(userId: string, name: string, locale: L
     const contentId = record.entitlement ? (!completed ? latest?.bookmark?.contentId || null : null) : position?.contentId || null;
     // Compatibility only: display state comes from bookmarks and Lesson completion.
     const progress = !points.length ? null : record.progress;
-    const category = portal.categories.find(item => item.id === course.categoryId || item.id === course.category || Object.values(item.labels).includes(course.category || ""));
     const query = new URLSearchParams({ viewMode:mode });
     if (lessonId) query.set("lessonId", lessonId);
     if (contentId) query.set("contentId", contentId);
@@ -48,7 +47,7 @@ export async function getOverviewDisplay(userId: string, name: string, locale: L
       action = "plans";
       href = `/${locale}/subscription?courseId=${encodeURIComponent(course.id)}`;
     }
-    return { id:record.id, courseId:course.id, title:course.title, category:category?.labels[locale] || course.category || "",
+    return { id:record.id, courseId:course.id, title:course.title, category:"",
       cover:await signCourseMediaUrl(course.cover || course.thumbnailPath || "/portal/course-study.jpg"),
       lessonCount:lessons.length, currentLesson:lessonId ? lessons.findIndex(lesson => lesson.id === lessonId) + 1 : null,
       lessonId, contentId, progress, mode, action, href, learningState,

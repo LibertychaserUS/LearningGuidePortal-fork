@@ -27,7 +27,6 @@ export function CourseManager({ copy, locale, operator = false }: { copy: Return
   const [search, setSearch] = useState(""), [query, setQuery] = useState(""), [status, setStatus] = useState("all"), [categoryId, setCategoryId] = useState(""), [subjectId, setSubjectId] = useState(""), [level, setLevel] = useState("");
   const [page, setPage] = useState(1), [pageSize, setPageSize] = useState(10);
   const [title, setTitle] = useState(""), [description, setDescription] = useState("");
-  const [category, setCategory] = useState<NonNullable<ProductCourse["category"]>>("European Humanities");
   const [creating, setCreating] = useState(false), [showCatalogue, setShowCatalogue] = useState(false);
   const [editing, setEditing] = useState<ProductCourse | null>(null), [preview, setPreview] = useState<ProductCourse | null>(null);
   const [assigning, setAssigning] = useState<ProductCourse | null>(null), [ownerEmail, setOwnerEmail] = useState("");
@@ -65,7 +64,7 @@ export function CourseManager({ copy, locale, operator = false }: { copy: Return
   async function create() {
     setBusy(true); setError("");
     try {
-      const data = await mutate("/api/backoffice/courses", "POST", { title, description, category });
+      const data = await mutate("/api/backoffice/courses", "POST", { title, description });
       setTitle(""); setDescription(""); setCreating(false); setEditing(data.course); await load();
     } catch (e) { setError(e instanceof Error ? e.message : messages.errors.failed); } finally { setBusy(false); }
   }
@@ -104,7 +103,6 @@ export function CourseManager({ copy, locale, operator = false }: { copy: Return
       setAssigning(null); setOwnerEmail(""); setNotice(messages.ownerAssigned); await load();
     } catch (e) { setError(e instanceof Error ? e.message : messages.errors.failed); } finally { setBusy(false); }
   }
-  const entryName = (id?: string | null) => catalogue.find(entry => entry.id === id)?.name;
   const formatTime = (value: string) => new Date(value).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
   const courseCell = (course: ProductCourse) => <div className={styles.courseCell}>
     {course.cover || course.thumbnailPath ? <img src={course.cover || course.thumbnailPath || ""} alt="" width={64} height={40}/> : <span className={styles.coverPlaceholder}/>}
@@ -120,7 +118,7 @@ export function CourseManager({ copy, locale, operator = false }: { copy: Return
   </Space>;
   const columns: TableProps<ProductCourse>["columns"] = [
     {title:messages.columnCourse,key:"course",width:340,render:(_,course)=>courseCell(course)},
-    {title:messages.category,key:"category",width:150,render:(_,course)=>entryName(course.categoryId)||course.category||messages.none},
+    {title:messages.category,key:"category",width:150,render:(_,course)=>course.categoryKey||messages.none},
     {title:messages.status,key:"status",width:100,render:(_,course)=>courseStatus(course)},
     {title:messages.lessons,key:"lessons",width:80,render:(_,course)=>course.sections.reduce((sum,section)=>sum+section.lessons.length,0)},
     {title:messages.updated,key:"updated",width:150,render:(_,course)=>formatTime(course.updatedAt)},
@@ -151,7 +149,6 @@ export function CourseManager({ copy, locale, operator = false }: { copy: Return
           {creating && <Form layout="vertical" className={styles.cardForm} onFinish={()=>void create()} disabled={busy}>
             <Form.Item label={copy.courseTitle} htmlFor="new-course-title"><Input id="new-course-title" value={title} maxLength={255} onChange={e=>setTitle(e.target.value)} required/></Form.Item>
             <Form.Item label={copy.description} htmlFor="new-course-description"><Input.TextArea id="new-course-description" value={description} maxLength={5000} onChange={e=>setDescription(e.target.value)} rows={3}/></Form.Item>
-            <Form.Item label={copy.category} htmlFor="new-course-category"><Select id="new-course-category" value={category} onChange={setCategory} options={(["Chinese Humanities","European Humanities","Science"] as const).map((value,index)=>({value,label:getMessages(locale).portal.courseCategories[index+1]}))}/></Form.Item>
             <Space wrap><Button type="primary" htmlType="submit" loading={busy}>{copy.create}</Button><Button onClick={()=>setCreating(false)}>{messages.cancel}</Button></Space>
           </Form>}
           <div className="bo-desktop">{filters("desktop")}</div>
@@ -161,7 +158,7 @@ export function CourseManager({ copy, locale, operator = false }: { copy: Return
           <div className="bo-mobile"><div className="bo-mobile-cards">
             {loading && <p role="status">{messages.loading}</p>}
             {!loading && !result.courses.length && <Empty description={messages.empty}/>}
-            {result.courses.map(course=><Card key={course.id} size="small"><div className="bo-card-heading">{courseCell(course)}{courseStatus(course)}</div><p>{entryName(course.categoryId)||course.category||messages.none}</p>{actions(course)}</Card>)}
+            {result.courses.map(course=><Card key={course.id} size="small"><div className="bo-card-heading">{courseCell(course)}{courseStatus(course)}</div><p>{course.categoryKey||messages.none}</p>{actions(course)}</Card>)}
           </div></div>
           <div className="bo-pagination"><Pagination current={result.page} total={result.total} pageSize={pageSize} showSizeChanger pageSizeOptions={[10,25,50]} responsive disabled={loading} onChange={(value,size)=>{setPageSize(size);setPage(size!==pageSize?1:value);}}/></div>
           {assigning && <Form layout="vertical" className={styles.cardForm} onFinish={()=>void assign()} disabled={busy}><h2>{messages.ownership}: {assigning.title}</h2><Form.Item label={messages.ownerEmail} htmlFor="course-owner-email"><Input id="course-owner-email" type="email" maxLength={254} required value={ownerEmail} onChange={e=>setOwnerEmail(e.target.value)}/></Form.Item><Space wrap><Button type="primary" htmlType="submit" loading={busy}>{messages.assignOwner}</Button><Button onClick={()=>setAssigning(null)}>{messages.cancel}</Button></Space></Form>}

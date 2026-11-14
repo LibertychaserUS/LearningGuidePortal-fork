@@ -51,7 +51,9 @@ export function PortalHeader({ locale, active, signedIn: initialSignedIn = false
   return (
     <header className={`${styles.header} portal-header ${signedIn ? "portal-header--signed-in" : "portal-header--visitor"}`}>
       <div className="portal-header-inner">
-        <Link prefetch={false} className="portal-brand" href={`/${locale}/portal`}>
+        {/* BUG-0328: on this very page the brand must not ask the server for it again
+            (`/?_rsc=…` plus the page CSS and fonts), which flashed the screen. */}
+        <Link prefetch={false} className="portal-brand" href={`/${locale}/portal`} onClick={(event) => { if (pathname === `/${locale}/portal` || pathname === `/${locale}/portal/`) event.preventDefault(); }}>
           <span className="portal-brand-mark" aria-hidden="true"><Image src="/portal/figma-logo.svg" width={24} height={24} alt="" /></span>
           <span>{messages.brand}</span>
         </Link>

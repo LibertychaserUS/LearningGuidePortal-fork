@@ -20,7 +20,7 @@ after(async () => {
 });
 
 const course = (id: string, status: ProductCourse["status"] = "published"): ProductCourse => ({
-  id, slug: id, title: id, description: "Course", category: "Science", status,
+  id, slug: id, title: id, description: "Course", categoryKey: "Science", status,
   createdAt: "2026-10-10T00:00:00.000Z", updatedAt: "2026-10-10T00:00:00.000Z",
   sections: [{ id: "section", title: "Section", lessons: Array.from({ length: 8 }, (_, index) => ({ id: `lesson-${index + 1}`, title: `Lesson ${index + 1}`, body: "Body", durationMinutes: 10, isPublic: index === 0 })) }],
 });

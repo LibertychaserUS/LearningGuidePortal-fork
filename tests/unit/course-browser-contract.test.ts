@@ -14,7 +14,7 @@ const credentials = {
   locked: { email: 'locked@example.test', password: 'synthetic-locked-password' },
 };
 const makeManifest = () => ({ courses: [{
-  id: 'fixture-course', slug: 'fixture-course-alias', title: 'Acceptance course', category: 'Science', cover: '/cover.svg',
+  id: 'fixture-course', slug: 'fixture-course-alias', title: 'Acceptance course', categoryKey: 'Science', cover: '/cover.svg',
   sections: [{ id: 'section-one', title: 'First section', lessons: [
     { id: 'intro', title: 'Introductory lesson', isPublic: true, bodyHash: hash('intro'), contentsHash: hash('[]'), media: [] },
     { id: 'private-lesson', title: 'Private lesson', isPublic: false, bodyHash: hash('body'), contentsHash: hash('contents'), media: [{ url: '/sample.wav', kind: 'audio' }] },

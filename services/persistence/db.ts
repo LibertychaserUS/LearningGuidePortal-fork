@@ -78,6 +78,8 @@ const SCHEMA_PROBE = `
     AND to_regclass('helpdesk_rate_hits') IS NOT NULL
     AND to_regclass('lesson_assessments') IS NOT NULL
     AND to_regclass('app_files') IS NOT NULL
+    AND to_regclass('learning_events') IS NOT NULL
+    AND to_regclass('learning_plan_entries') IS NOT NULL
     AND to_regclass('data_migrations') IS NOT NULL
     AND to_regclass('orm_rows') IS NOT NULL
     AND to_regclass('orm_users_email_key') IS NOT NULL
@@ -642,6 +644,38 @@ WHERE table_name = 'emailBindingTokens';
         );
         CREATE INDEX IF NOT EXISTS study_group_webhook_receipts_received_idx
           ON study_group_webhook_receipts (received_at);
+        -- Mirrors db/migrations/029_learning_events.sql (§14 C8 / §12 learning
+        -- events). Append-only ledger: eventId is the client idempotency key and
+        -- the only identity; no hash/digest columns anywhere (owner red line).
+        CREATE TABLE IF NOT EXISTS learning_events (
+          event_id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('started', 'paused', 'resumed', 'completed', 'abandoned')),
+          occurred_at TIMESTAMPTZ NOT NULL,
+          received_at TIMESTAMPTZ NOT NULL,
+          content_version_id TEXT NOT NULL,
+          stage_key TEXT NOT NULL,
+          sequence INTEGER CHECK (sequence IS NULL OR sequence >= 0)
+        );
+        CREATE INDEX IF NOT EXISTS learning_events_content_idx
+          ON learning_events (user_id, content_version_id, stage_key);
+        CREATE INDEX IF NOT EXISTS learning_events_session_idx
+          ON learning_events (session_id, sequence);
+        CREATE INDEX IF NOT EXISTS learning_events_started_lookup_idx
+          ON learning_events (user_id, session_id, content_version_id, stage_key);
+        -- Read-only projection of the frozen plan consumed by the as-run
+        -- reconciliation (C3 PlanEntry / C6 / C8). The content-projection
+        -- writer is a separate seam; unknown content versions are refused.
+        CREATE TABLE IF NOT EXISTS learning_plan_entries (
+          content_version_id TEXT NOT NULL,
+          entry_id TEXT NOT NULL,
+          stage_key TEXT NOT NULL,
+          order_key TEXT NOT NULL,
+          PRIMARY KEY (content_version_id, entry_id)
+        );
+        CREATE INDEX IF NOT EXISTS learning_plan_entries_stage_idx
+          ON learning_plan_entries (content_version_id, stage_key, order_key);
       `);
     await client.query("COMMIT");
   } catch (error) {

@@ -1,17 +1,19 @@
 import Link from "next/link";
 import Image from "next/image";
-import { getPortalContent } from "@/services/productStore";
+import { getAdminCatalogue } from "@/services/adminCatalogueCache";
 import type { Locale } from "@/lib/i18n/config";
 import { getMessages } from "@/lib/i18n/messages";
 
 export async function PortalFooter({ locale }: { locale: Locale }) {
-  const content = await getPortalContent();
+  // P4/P6: footer category links come from the Admin catalogue (stable key + localized name),
+  // never from the Portal CMS.
+  const catalogue = await getAdminCatalogue();
   const copy = getMessages(locale).portal;
   return (
     <footer className="portal-footer">
       <div className="portal-footer-grid">
         <div><h2>{getMessages(locale).brand}</h2><p>{copy.footerAbout}</p></div>
-        <div><h2>{copy.navigation.courses}</h2>{content.categories.map((category) => <Link prefetch={false} key={category.id} href={`/${locale}/portal/courses?category=${encodeURIComponent(category.id)}`}>{category.labels[locale]}</Link>)}</div>
+        <div><h2>{copy.navigation.courses}</h2>{catalogue.map((node) => <Link prefetch={false} key={node.name} href={`/${locale}/portal/courses?category=${encodeURIComponent(node.name)}`}>{node.localized[locale]?.name || node.name}</Link>)}</div>
         <div><h2>{copy.footerSupport}</h2><Link prefetch={false} href={`/${locale}/help`}>{copy.footerHelp}</Link><Link prefetch={false} href={`/${locale}/contact`}>{copy.footerContact}</Link><Link prefetch={false} href={`/${locale}/cookie-policy`}>{copy.footerCookies}</Link></div>
         <div><h2>{copy.footerLegal}</h2><Link prefetch={false} href={`/${locale}/privacy-policy`}>{copy.footerPrivacy}</Link><Link prefetch={false} href={`/${locale}/terms-of-service`}>{copy.footerTerms}</Link><p className="portal-footer-copyright">{copy.footerCopyright}</p></div>
       </div>
