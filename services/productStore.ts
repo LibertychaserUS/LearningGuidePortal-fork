@@ -10,6 +10,7 @@ import { withPlanAiPoints } from "./planAiPoints";
 import { availableCourseLearningModes } from "@/lib/courseLearningMode";
 import { courseModePosition } from "@/lib/courseModePosition";
 import { textLessonPreviewPolicy } from "@/lib/textLessonPreview";
+import { courseTotalMinutes } from "@/lib/courseDuration";
 import type { StripeUpgradeProration } from "@/contracts/stripe-upgrade";
 import { previewStripeUpgrade } from "./stripeUpgradeProration";
 import { resolveLegacyUpgradeSourcePrice } from "./stripeUpgradeSource";
@@ -2255,7 +2256,8 @@ export async function getLearningOverview(userId: string) {
         courseDescription: course?.description || "",
         // P3/P4: the overview carries the stable key; display names come from the catalogue resolver.
         courseCategory: course?.categoryKey ?? "",
-        totalMinutes: lessons.reduce((total, lesson) => total + lesson.durationMinutes, 0),
+        // BUG-0348：与目录卡片、课程详情页同源。
+        totalMinutes: courseTotalMinutes(lessons),
         courseStatus: course?.status || "draft",
         totalSeconds: record?.totalSeconds || 0,
         openedLearningPointCount: pointProgress?.current ?? openedLessonIds.length,

@@ -8,6 +8,14 @@ const sessionSecret = "e2e-session-secret-at-least-32-chars!!";
 
 const localEnv = {
   APP_ENV: "DEV",
+  // DEV 默认把 localhost / 127.0.0.1 当作后台域名，会把产品页 307 到 Backoffice。
+  // 与 playwright.studygroup.config.ts 一样，把后台域名钉到真实 admin 域，产品页才可达。
+  ADMIN_HOSTS: "admin.ilovelearningguide.com,admin.sit.ilovelearningguide.com",
+  // 课程封面在服务端用 S3 预签名（services/persistence/s3.ts）；本机没有凭据时
+  // 页面会直接抛 CredentialsProviderError。占位键只让签名在本地算出来，不发起任何 AWS 请求。
+  AWS_REGION: "ap-southeast-1",
+  AWS_ACCESS_KEY_ID: "local-presign-only",
+  AWS_SECRET_ACCESS_KEY: "local-presign-only",
   PAYMENT_MODE: "demo",
   LOCAL_SOCIAL_LOGIN: "1",
   STORAGE_BACKEND: "local",
@@ -59,6 +67,12 @@ export default defineConfig({
         "**/E2E-B1-negative.spec.ts",
         "**/PAY-stripe.skip.spec.ts",
       ],
+    },
+    // BUG-0348：公开页面的跨面一致性，不需要登录或外部服务。
+    {
+      name: "e2e-public-pages",
+      ...chromium,
+      testMatch: ["**/course-duration-consistency.spec.ts"],
     },
     ...(!ci
       ? [
