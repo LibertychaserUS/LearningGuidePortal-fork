@@ -7,6 +7,16 @@ export function totalVideoMinutes(lessons: LessonDuration[]): number | null {
 }
 
 /**
+ * BUG-0348 的数据规则：有实测媒体时，课时分钟数由媒体算出，不接受手填。
+ * Admin 上传后自动读时长（CourseContentSection: "no manual entry"），这里把它落成不变式。
+ */
+export function lessonMinutesFromMedia(seconds?: number | null): number | null {
+  return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0
+    ? Math.ceil(seconds / 60)
+    : null;
+}
+
+/**
  * BUG-0348：课程总时长的唯一计算源。
  *
  * 目录卡片、课程详情页与学习概览都从这里取数：有实测媒体时长时用实测
