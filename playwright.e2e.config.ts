@@ -52,7 +52,13 @@ export default defineConfig({
       ? `npm run start -- -p ${port}`
       : `npx next dev --hostname 127.0.0.1 -p ${port}`,
     url: ci ? `${baseURL}/en-GB/portal` : `${baseURL}/api/health`,
-    reuseExistingServer: !ci,
+    // Always own the server, even locally. With `reuseExistingServer: true` Playwright
+    // silently attached to whatever was already on the port; when a leftover `next dev`
+    // died mid-run every later test failed with net::ERR_CONNECTION_REFUSED, which reads
+    // as a product failure but is an environment one. Owning the process makes Playwright
+    // surface a real webServer error instead. If a manual dev server holds the port this
+    // now fails fast; stop it or run with `E2E_PORT=<free port>`.
+    reuseExistingServer: false,
     timeout: 180_000,
     env: ci ? ciEnv : localEnv,
   },
@@ -74,14 +80,16 @@ export default defineConfig({
       ...chromium,
       testMatch: ["**/course-duration-consistency.spec.ts"],
     },
-    ...(!ci
-      ? [
-          {
-            name: "e2e-local-demo",
-            ...chromium,
-            testMatch: ["**/E2E-B1-purchase-learn.spec.ts"],
-          },
-        ]
-      : []),
+    // 本地专用，不计入 CI 门禁。这组依赖 demo 支付链路
+    // （PAYMENT_MODE=demo、EMAIL_VERIFICATION_REQUIRED=0、`next dev`）和
+    // /api/purchase/demo/confirm；CI 的 webServer 是 PAYMENT_MODE=stripe + APP_ENV=PROD，
+    // 依赖不成立。这里始终注册项目，让 `--list` 在本地和 CI 都能枚举到它；真正的 CI
+    // 排除写在用例里的显式 test.skip(Boolean(process.env.CI), 理由)，而不是把这个
+    // project 从 projects 数组里静默删掉。ci.yml 目前不运行 test:e2e（现状，未改）。
+    {
+      name: "e2e-local-demo",
+      ...chromium,
+      testMatch: ["**/E2E-B1-purchase-learn.spec.ts"],
+    },
   ],
 });

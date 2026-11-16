@@ -6,7 +6,10 @@ const COURSE_ID = "epicureanism";
 const LESSON_ID = "pleasure-and-the-good-life";
 const CONSENTS = { renewal: true, terms: true, refund: true };
 
-test.skip(Boolean(process.env.CI), "demo trial/purchase is local-only; Actions stay on next start + stripe");
+test.skip(
+  Boolean(process.env.CI),
+  "local-only, not part of the CI gate: needs PAYMENT_MODE=demo + EMAIL_VERIFICATION_REQUIRED=0 and /api/purchase/demo/confirm; CI runs next start with PAYMENT_MODE=stripe / APP_ENV=PROD",
+);
 
 test.describe.configure({ mode: "serial" });
 
@@ -14,12 +17,21 @@ function freshEmail(caseId: string) {
   return `e2e-${caseId}-${Date.now()}@example.com`;
 }
 
+// startPayment (services/paymentService.ts checkoutRequestOrigin) requires the
+// Origin header to match the request host before it validates consents or the
+// quote. Playwright's request fixture sends no Origin, so every trial and
+// purchase checkout call must say where it came from.
+function appOrigin(baseURL: string | undefined) {
+  return new URL(baseURL || "http://127.0.0.1:3012").origin;
+}
+
 test.describe("E2E-B1-004", () => {
   test("register with verification off creates a session; login works; returnTo drop is design", async ({ request }) => {
     const email = freshEmail("004");
     const check = await request.post("/api/auth/check-email", { data: { email } });
     expect(check.status()).toBe(200);
-    expect(await check.json()).toEqual({ ok: true });
+    // The route has returned { ok, data } since 61d960a2; assert the envelope, not an exact object.
+    expect(await check.json()).toMatchObject({ ok: true });
 
     const registered = await request.post("/api/auth/register", {
       data: { termsAccepted: true, email, password: PASSWORD, nickname: "E2E User", locale: "en-GB" },
@@ -56,7 +68,8 @@ test.describe("E2E-B1-004", () => {
 });
 
 test.describe("E2E-B1-005", () => {
-  test("trial quote, missing consents 400, cancel grants nothing, complete grants entitlement with empty cards", async ({ request }) => {
+  test("trial quote, missing consents 400, cancel grants nothing, complete grants entitlement with empty cards", async ({ request, baseURL }) => {
+    const origin = appOrigin(baseURL);
     const email = freshEmail("005");
     const registered = await request.post("/api/auth/register", {
       data: { termsAccepted: true, email, password: PASSWORD, nickname: "E2E User", locale: "en-GB" },
@@ -69,10 +82,16 @@ test.describe("E2E-B1-005", () => {
     expect(quoteBody.quote?.kind).toBe("trial");
     const quoteId = quoteBody.quote.id;
 
-    const missing = await request.post("/api/trial", { data: { quoteId, locale: "en-GB" } });
+    const missing = await request.post("/api/trial", {
+      headers: { origin },
+      data: { quoteId, locale: "en-GB" },
+    });
     expect(missing.status()).toBe(400);
 
-    const checkout = await request.post("/api/trial", { data: { quoteId, locale: "en-GB", consents: CONSENTS } });
+    const checkout = await request.post("/api/trial", {
+      headers: { origin },
+      data: { quoteId, locale: "en-GB", consents: CONSENTS },
+    });
     expect(checkout.status()).toBe(200);
     const checkoutBody = await checkout.json();
     expect(checkoutBody.order?.status).toBe("pending");
@@ -88,6 +107,7 @@ test.describe("E2E-B1-005", () => {
 
     const secondQuote = await request.post("/api/subscription/quote", { data: { planId: PLAN_ID, kind: "trial" } });
     const second = await request.post("/api/trial", {
+      headers: { origin },
       data: { quoteId: (await secondQuote.json()).quote.id, locale: "en-GB", consents: CONSENTS },
     });
     expect(second.status()).toBe(200);
@@ -104,7 +124,8 @@ test.describe("E2E-B1-005", () => {
 });
 
 test.describe("E2E-B1-006", () => {
-  test("purchase complete replaces trial; receipt HTML is 200", async ({ request }) => {
+  test("purchase complete replaces trial; receipt HTML is 200", async ({ request, baseURL }) => {
+    const origin = appOrigin(baseURL);
     const email = freshEmail("006");
     expect((await request.post("/api/auth/register", {
       data: { termsAccepted: true, email, password: PASSWORD, nickname: "E2E User", locale: "en-GB" },
@@ -112,6 +133,7 @@ test.describe("E2E-B1-006", () => {
 
     const trialQuote = await request.post("/api/subscription/quote", { data: { planId: PLAN_ID, kind: "trial" } });
     const trial = await request.post("/api/trial", {
+      headers: { origin },
       data: { quoteId: (await trialQuote.json()).quote.id, locale: "en-GB", consents: CONSENTS },
     });
     await request.post("/api/purchase/demo/confirm", {
@@ -124,6 +146,7 @@ test.describe("E2E-B1-006", () => {
     expect(quoteBody.quote?.kind).toBe("purchase");
 
     const missing = await request.post("/api/purchase/checkout", {
+      headers: { origin },
       data: { quoteId: quoteBody.quote.id, locale: "en-GB" },
     });
     expect(missing.status()).toBe(400);
@@ -131,6 +154,7 @@ test.describe("E2E-B1-006", () => {
     const purchaseQuote = await request.post("/api/purchase/quote", { data: { planId: PLAN_ID, kind: "purchase" } });
     const purchaseQuoteBody = await purchaseQuote.json();
     const checkout = await request.post("/api/purchase/checkout", {
+      headers: { origin },
       data: { quoteId: purchaseQuoteBody.quote.id, locale: "en-GB", consents: CONSENTS },
     });
     expect(checkout.status()).toBe(200);
@@ -154,7 +178,8 @@ test.describe("E2E-B1-006", () => {
 });
 
 test.describe("E2E-B1-007", () => {
-  test("LEARN-02: purchased entitlement exists but course cards stay empty until study/events", async ({ request }) => {
+  test("LEARN-02: purchased entitlement exists but course cards stay empty until study/events", async ({ request, baseURL }) => {
+    const origin = appOrigin(baseURL);
     const email = freshEmail("007");
     expect((await request.post("/api/auth/register", {
       data: { termsAccepted: true, email, password: PASSWORD, nickname: "E2E User", locale: "en-GB" },
@@ -162,6 +187,7 @@ test.describe("E2E-B1-007", () => {
 
     const trialQuote = await request.post("/api/subscription/quote", { data: { planId: PLAN_ID, kind: "trial" } });
     const trial = await request.post("/api/trial", {
+      headers: { origin },
       data: { quoteId: (await trialQuote.json()).quote.id, locale: "en-GB", consents: CONSENTS },
     });
     await request.post("/api/purchase/demo/confirm", {
@@ -169,6 +195,7 @@ test.describe("E2E-B1-007", () => {
     });
     const purchaseQuote = await request.post("/api/purchase/quote", { data: { planId: PLAN_ID, kind: "purchase" } });
     const checkout = await request.post("/api/purchase/checkout", {
+      headers: { origin },
       data: { quoteId: (await purchaseQuote.json()).quote.id, locale: "en-GB", consents: CONSENTS },
     });
     await request.post("/api/purchase/demo/confirm", {
@@ -182,7 +209,8 @@ test.describe("E2E-B1-007", () => {
 });
 
 test.describe("E2E-B1-008", () => {
-  test("study/events after purchase creates a course card", async ({ request }) => {
+  test("study/events after purchase creates a course card", async ({ request, baseURL }) => {
+    const origin = appOrigin(baseURL);
     const email = freshEmail("008");
     expect((await request.post("/api/auth/register", {
       data: { termsAccepted: true, email, password: PASSWORD, nickname: "E2E User", locale: "en-GB" },
@@ -190,6 +218,7 @@ test.describe("E2E-B1-008", () => {
 
     const trialQuote = await request.post("/api/subscription/quote", { data: { planId: PLAN_ID, kind: "trial" } });
     const trial = await request.post("/api/trial", {
+      headers: { origin },
       data: { quoteId: (await trialQuote.json()).quote.id, locale: "en-GB", consents: CONSENTS },
     });
     await request.post("/api/purchase/demo/confirm", {
@@ -197,6 +226,7 @@ test.describe("E2E-B1-008", () => {
     });
     const purchaseQuote = await request.post("/api/purchase/quote", { data: { planId: PLAN_ID, kind: "purchase" } });
     const checkout = await request.post("/api/purchase/checkout", {
+      headers: { origin },
       data: { quoteId: (await purchaseQuote.json()).quote.id, locale: "en-GB", consents: CONSENTS },
     });
     await request.post("/api/purchase/demo/confirm", {
