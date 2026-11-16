@@ -1,0 +1,134 @@
+{
+ "courses": [
+  {
+   "id": "epicureanism",
+   "slug": "epicureanism",
+   "title": "Epicureanism",
+   "description": "A guided introduction to pleasure, desire, friendship and the Epicurean argument about death.",
+   "status": "published",
+   "cover": null,
+   "thumbnailPath": null,
+   "sections": [
+    {
+     "id": "foundations",
+     "title": "Foundations",
+     "lessons": [
+      {
+       "id": "pleasure-and-the-good-life",
+       "title": "Pleasure and the Good Life",
+       "isPublic": true,
+       "durationMinutes": 25,
+       "videoDurationSeconds": null
+      },
+      {
+       "id": "death-is-nothing-to-us",
+       "title": "Why Death Is Nothing to Us",
+       "isPublic": false,
+       "durationMinutes": 20,
+       "videoDurationSeconds": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "stoicism",
+   "slug": "stoicism",
+   "title": "Stoicism",
+   "description": "A guided introduction to judgement, impression and the Stoic distinction between what is up to us and what is not.",
+   "status": "published",
+   "cover": null,
+   "thumbnailPath": "/portal/course-book.jpg",
+   "sections": [
+    {
+     "id": "stoic-foundations",
+     "title": "Foundations",
+     "lessons": [
+      {
+       "id": "what-is-up-to-us",
+       "title": "What Is Up to Us",
+       "isPublic": true,
+       "durationMinutes": 20,
+       "videoDurationSeconds": null
+      },
+      {
+       "id": "impressions-and-assent",
+       "title": "Impressions and Assent",
+       "isPublic": false,
+       "durationMinutes": 18,
+       "videoDurationSeconds": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "quintus-horatius-flaccus",
+   "slug": "quintus-horatius-flaccus",
+   "title": "Quintus Horatius Flaccus",
+   "description": "A renowned poet, critic, and translator during the Augustan period, known for works such as Ars Poetica. He is one of the representatives of the Golden Age of Roman literature. This course leads you deep into his life and works.",
+   "status": "published",
+   "cover": "https://aitutor-data-851987565851.s3.ap-southeast-1.amazonaws.com/learning-guide/dev/documents/mvp/image/Horatius.jpg",
+   "thumbnailPath": "https://aitutor-data-851987565851.s3.ap-southeast-1.amazonaws.com/learning-guide/dev/documents/mvp/image/Horatius.jpg",
+   "sections": [
+    {
+     "id": "horatius-section-1",
+     "title": "Section 1",
+     "lessons": [
+      {
+       "id": "horatius-lesson-21",
+       "title": "Life of Horace",
+       "isPublic": true,
+       "durationMinutes": 20,
+       "videoDurationSeconds": null
+      }
+     ]
+    },
+    {
+     "id": "horatius-section-2",
+     "title": "Section 2",
+     "lessons": [
+      {
+       "id": "horatius-lesson-22",
+       "title": "Odes Appreciation",
+       "isPublic": true,
+       "durationMinutes": 45,
+       "videoDurationSeconds": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "modeling-life",
+   "slug": "modeling-life",
+   "title": "Modeling life",
+   "description": "Centred on dynamical systems and feedback, it shows how differential equations underpin homeostasis, population dynamics, neural activity and disease — the very competencies flagged as essential by HHMI/AAMC, and the NSF/AAAS Vision and Change initiative. Rather than mastering by-hand calculus techniques, students learn to simulate systems computationally using Euler's method, requiring no prior background in differential equations. Real examples from physiology, ecology, neuroscience and immunology anchor every concept, starting from day one with a predator–prey ecosystem. The result is a practical, intuitive fluency in dynamical thinking that prepares students for further study and research across the life sciences.",
+   "status": "published",
+   "cover": "/courses/modeling-life/cover.png",
+   "thumbnailPath": "/courses/modeling-life/cover.png",
+   "sections": [
+    {
+     "id": "modeling-life-foundations",
+     "title": "Modeling life",
+     "lessons": [
+      {
+       "id": "modeling-life-lesson-1",
+       "title": "State Spaces, Vector Spaces and Trajectories",
+       "isPublic": true,
+       "durationMinutes": 25,
+       "videoDurationSeconds": 1469
+      },
+      {
+       "id": "modeling-life-lesson-2",
+       "title": "Pitchfork Bifurcation",
+       "isPublic": false,
+       "durationMinutes": 27,
+       "videoDurationSeconds": 1584
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -16,7 +16,9 @@ import { courseLessonDuration } from "../../lib/courseDetailPresentation";
 // - 没有任何实测秒数可用时，Course 时长不存在，界面不显示任何数字。
 // BUG-0348 的"卡片与详情页同源"仍然成立：同一个函数决定两边。
 const nodeRequire = createRequire(import.meta.url);
-const product = nodeRequire("../../data/knowledge_system/learning_guide/product.json");
+// data/knowledge_system/learning_guide/product.json 被 .gitignore 排除、CI 快照里没有，
+// 这里改用提交在仓库里的夹具（内容取自真实 product.json 的四门课，仅保留本测试需要的字段）。
+const product = nodeRequire("../fixtures/product-courses.json");
 
 type Lesson = { id: string; title: string; isPublic: boolean; durationMinutes?: number; videoDurationSeconds?: number | null };
 type Course = { id: string; slug: string; title: string; description: string; status: string; cover?: string | null; thumbnailPath?: string | null; sections: Array<{ lessons: Lesson[] }> };
