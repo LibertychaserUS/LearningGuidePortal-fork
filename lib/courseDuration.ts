@@ -2,7 +2,7 @@ type LessonDuration = { videoDurationSeconds?: number | null };
 type LessonWithMinutes = LessonDuration & { durationMinutes?: number };
 
 export function totalVideoMinutes(lessons: LessonDuration[]): number | null {
-  if (!lessons.length || lessons.some(lesson => typeof lesson.videoDurationSeconds !== "number" || !Number.isFinite(lesson.videoDurationSeconds) || lesson.videoDurationSeconds < 0)) return null;
+  if (!lessons.length || lessons.some(lesson => typeof lesson.videoDurationSeconds !== "number" || !Number.isFinite(lesson.videoDurationSeconds) || lesson.videoDurationSeconds <= 0)) return null;
   return Math.ceil(lessons.reduce((total, lesson) => total + lesson.videoDurationSeconds!, 0) / 60);
 }
 
@@ -17,14 +17,12 @@ export function lessonMinutesFromMedia(seconds?: number | null): number | null {
 }
 
 /**
- * BUG-0348：课程总时长的唯一计算源。
+ * BUG-0348 / PRD 12.5.1：课程总时长的唯一计算源。
  *
- * 目录卡片、课程详情页与学习概览都从这里取数：有实测媒体时长时用实测
- * （向上取整到分钟），否则退回编排分钟。三个页面显示同一个数字。
+ * 目录卡片、课程详情页与学习概览都从这里取数：只有全部 Lesson 都有实测视频
+ * 秒数时才给出总分钟（向上取整）。纯文本课、或有 Lesson 未测到时长时返回
+ * null —— 表示"不显示时长"，绝不退回编排分钟，也不显示 0。
  */
-export function courseTotalMinutes(lessons: LessonWithMinutes[]): number {
-  return (
-    totalVideoMinutes(lessons) ??
-    lessons.reduce((total, lesson) => total + (lesson.durationMinutes || 0), 0)
-  );
+export function courseTotalMinutes(lessons: LessonWithMinutes[]): number | null {
+  return totalVideoMinutes(lessons);
 }

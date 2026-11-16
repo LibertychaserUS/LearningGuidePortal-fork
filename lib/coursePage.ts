@@ -52,7 +52,8 @@ export type CourseIdentity = {
   track: string;
   lessonCount: number;
   previewAvailable: boolean;
-  totalMinutes: number;
+  /** PRD 12.5.1: null means the course has no measured video duration and must render no total. */
+  totalMinutes: number | null;
 };
 
 export type CourseSyllabusItem = {

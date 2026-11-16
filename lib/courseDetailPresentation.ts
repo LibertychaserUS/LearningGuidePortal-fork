@@ -1,10 +1,11 @@
 import type { ProductLesson, ProductPlan } from "@/services/productStore";
 
-/** Display actual media duration; never infer it from the lesson's position. */
+/** PRD 12.5.1: display only the measured video duration; never fall back to the lesson's configured minutes. */
 export function courseLessonDuration(lesson?: Pick<ProductLesson, "durationMinutes" | "videoDurationSeconds">) {
-  if (!lesson) return "—";
-  const seconds = Math.max(0, Math.round(lesson.videoDurationSeconds ?? lesson.durationMinutes * 60));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const seconds = lesson?.videoDurationSeconds;
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) return "—";
+  const rounded = Math.max(0, Math.round(seconds));
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}`;
 }
 
 /** Keep course totals in whole-hour and remaining-minute form for the course detail UI. */

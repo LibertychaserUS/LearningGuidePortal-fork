@@ -87,7 +87,8 @@ test("UC-PORTAL-1: course identity comes from the product store, not KS leftover
   assert.equal(identity.track, "European Humanities");
   assert.equal(identity.lessonCount, 2);
   assert.equal(identity.previewAvailable, true);
-  assert.equal(identity.totalMinutes, 45);
+  // PRD 12.5.1: epicureanism is a text-only course with no measured video, so it has no total.
+  assert.equal(identity.totalMinutes, null);
   assert.notEqual(identity.track, "Course");
 });
 

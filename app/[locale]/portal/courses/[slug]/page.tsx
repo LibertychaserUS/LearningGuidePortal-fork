@@ -67,9 +67,14 @@ export default async function CourseDetailPage({ params, searchParams }: {
   const pricingHref = `/${locale}/subscription?courseId=${encodeURIComponent(course?.id || slug)}${plan ? `&planId=${encodeURIComponent(plan.id)}` : ""}`;
   const price = plan ? formatPlanPrice(locale, plan) : null;
   const signedCover = await signCourseMediaUrl(course?.cover || course?.thumbnailPath || "");
-  const durationParts = courseDurationParts(identity?.totalMinutes || 0);
   const durationNumber = new Intl.NumberFormat(locale);
-  const durationLabel = `${durationNumber.format(durationParts.hours)}${messages.homeDesign.hourShort}${durationNumber.format(durationParts.minutes)}${messages.homeDesign.minuteShort}`;
+  // PRD 12.5.1: no measured video means no course total — render no duration text at all.
+  const durationLabel = identity?.totalMinutes == null
+    ? null
+    : (() => {
+        const parts = courseDurationParts(identity.totalMinutes);
+        return `${durationNumber.format(parts.hours)}${messages.homeDesign.hourShort}${durationNumber.format(parts.minutes)}${messages.homeDesign.minuteShort}`;
+      })();
   const lessonMetadata = new Map(course?.sections.flatMap(section => section.lessons.map(lesson => [lesson.id, {
     duration: courseLessonDuration(lesson),
     // Only public syllabus metadata, never protected lesson body/content.
@@ -102,7 +107,7 @@ export default async function CourseDetailPage({ params, searchParams }: {
             <p className={styles.summary}>{course?.subtitle || course?.description || ""}</p>
             <div className={styles.stats} data-preview-available={identity.previewAvailable ? "true" : "false"}>
               <span data-lesson-count={identity.lessonCount}>{identity.lessonCount} {detail.lessons}</span>
-              <span data-total-minutes={identity.totalMinutes}>{durationLabel}</span>
+              {durationLabel !== null ? <span data-total-minutes={identity.totalMinutes}>{durationLabel}</span> : null}
             </div>
           </div>
         </section>
@@ -124,7 +129,7 @@ export default async function CourseDetailPage({ params, searchParams }: {
                 <CourseCurriculumDisclosure summary={<>
                     <span className={styles.meta}>
                       <span><Image src={asset("lessons")} alt="" width={20} height={20} />{identity.lessonCount} {detail.lessons}</span>
-                      <span><Image src={asset("clock")} alt="" width={20} height={20} />{durationLabel}</span>
+                      {durationLabel !== null ? <span><Image src={asset("clock")} alt="" width={20} height={20} />{durationLabel}</span> : null}
                     </span>
                     <span className={styles.toggle}><span className={styles.less}>{detail.less}</span><span className={styles.more}>{detail.more}</span><Image src={asset("chevron-up")} alt="" width={16} height={16} /></span>
                   </>}>

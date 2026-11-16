@@ -5,10 +5,12 @@ import type { ProductPlan } from "../../services/productStore";
 import en from "../../messages/en-GB.json";
 import zh from "../../messages/zh-CN.json";
 
-test("course detail shows real video duration or the lesson's configured minutes", () => {
+// PRD 12.5.1: Lesson 时长只来自上传后读到的实测视频时长。没有实测秒数时
+// 不显示任何时长文案，编排分钟不能替补（旧语义 "25:00"/"1:30" 被这条 PRD 推翻）。
+test("course detail shows only the measured video duration, never the configured minutes", () => {
   assert.equal(courseLessonDuration({ durationMinutes: 33, videoDurationSeconds: 1941 }), "32:21");
-  assert.equal(courseLessonDuration({ durationMinutes: 25 }), "25:00");
-  assert.equal(courseLessonDuration({ durationMinutes: 1.5, videoDurationSeconds: null }), "1:30");
+  assert.equal(courseLessonDuration({ durationMinutes: 25 }), "—");
+  assert.equal(courseLessonDuration({ durationMinutes: 1.5, videoDurationSeconds: null }), "—");
   assert.equal(courseLessonDuration({ durationMinutes: 25, videoDurationSeconds: 0 }), "0:00");
   assert.equal(courseLessonDuration(), "—");
 });
