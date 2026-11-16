@@ -48,7 +48,7 @@ import type { HighestCourseProgress, KnowledgePositions } from "@/contracts/know
 import { knowledgeProgress, courseKnowledgePoints } from "@/lib/knowledgeProgress";
 import type { StudyProgressInput } from "@/contracts/knowledge-progress";
 import { canAuthorCourses, canManageCourse, canOperateBackoffice } from "./backofficeAccess";
-import { AuthoringError, applyCourseDraft, validateCourseMetadata, selectAuthorCourses } from "./courseAuthoring";
+import { AuthoringError, applyCourseDraft, resolveCourseDraftMediaDurations, storedAssetVideoSeconds, validateCourseMetadata, selectAuthorCourses } from "./courseAuthoring";
 import { applyDataMigrations } from "./dataMigrations";
 import { isValidAccountName, normaliseName, validateAccountName } from "@/lib/nameValidation";
 import { CourseLearningModeError, isCourseLearningMode, isCourseLearningModeContext, type CourseLearningMode, type CourseLearningModeContext, type CourseLearningModePreferences, type CourseLearningModeResult } from "@/contracts/course-learning-mode";
@@ -2678,6 +2678,9 @@ export async function saveCourseDraftForOperator(operatorId: string, courseId: s
     const index = data.courses.indexOf(course);
     assertNoCategoryWrite(input);
     const updated = applyCourseDraft(course, input);
+    // F1 / PRD 12.5.1: the draft's videoDurationSeconds is untrusted browser input; the
+    // authoritative seconds come from the media asset headers, measured at upload time (mvhd).
+    await resolveCourseDraftMediaDurations(updated, input, await storedAssetVideoSeconds(courseId));
     const { assertCourseMediaReferences } = await import("./courseMedia");
     try {
       await assertCourseMediaReferences(updated);

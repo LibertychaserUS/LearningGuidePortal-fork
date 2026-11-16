@@ -62,17 +62,26 @@ test("omitted video duration is cleared when the active video URL changes", () =
   draft.sections[0].lessons[0].contents = videoLessonContents(videoMedia("22222222-2222-4222-8222-222222222222"));
   assert.equal(applyCourseDraft(courseWithVideo(), draft).sections[0].lessons[0].videoDurationSeconds, null);
 });
-test("measured seconds set the lesson minutes, not the authored estimate", () => {
+// PRD 12.5.1 (SSOT, quoted in course-duration-consistency.test.ts): the lesson duration is the
+// measured video seconds read from the file after upload — manual entry is not allowed. The
+// browser-submitted videoDurationSeconds is therefore ignored here; only
+// resolveCourseDraftMediaDurations (lesson-video-duration-trust.test.ts) sets minutes from the
+// upload-measured asset headers.
+test("client-submitted seconds never set the lesson minutes, the authored estimate stays", () => {
   const draft = input();
   Object.assign(draft.sections[0].lessons[0], { durationMinutes: 25, videoDurationSeconds: 3300 });
-  assert.equal(applyCourseDraft(course, draft).sections[0].lessons[0].durationMinutes, 55);
+  const saved = applyCourseDraft(course, draft);
+  assert.equal(saved.sections[0].lessons[0].videoDurationSeconds, null);
+  assert.equal(saved.sections[0].lessons[0].durationMinutes, 25);
 });
-test("measured seconds round up to the next minute", () => {
+test("a forged 59-second value is ignored; rounding applies to measured asset values only", () => {
   const draft = input();
   Object.assign(draft.sections[0].lessons[0], { durationMinutes: 25, videoDurationSeconds: 59 });
-  assert.equal(applyCourseDraft(course, draft).sections[0].lessons[0].durationMinutes, 1);
+  const saved = applyCourseDraft(course, draft);
+  assert.equal(saved.sections[0].lessons[0].videoDurationSeconds, null);
+  assert.equal(saved.sections[0].lessons[0].durationMinutes, 25);
 });
-test("zero seconds counts as unmeasured and keeps the authored minutes", () => {
+test("client zero seconds are ignored and the authored minutes are kept", () => {
   const draft = input();
   Object.assign(draft.sections[0].lessons[0], { durationMinutes: 25, videoDurationSeconds: 0 });
   assert.equal(applyCourseDraft(course, draft).sections[0].lessons[0].durationMinutes, 25);
@@ -89,10 +98,12 @@ test("durationMinutes validation rejects 0, 601, NaN and non-integers", () => {
     assert.throws(() => applyCourseDraft(course, draft), (e: unknown) => e instanceof AuthoringError && e.code === "invalid");
   }
 });
-test("seconds beyond the accepted media range are rejected as invalid", () => {
+test("out-of-range client seconds are ignored, not rejected (PRD 12.5.1)", () => {
   const draft = input();
   Object.assign(draft.sections[0].lessons[0], { durationMinutes: 25, videoDurationSeconds: 36001 });
-  assert.throws(() => applyCourseDraft(course, draft), (e: unknown) => e instanceof AuthoringError && e.code === "invalid");
+  const saved = applyCourseDraft(course, draft);
+  assert.equal(saved.sections[0].lessons[0].videoDurationSeconds, null);
+  assert.equal(saved.sections[0].lessons[0].durationMinutes, 25);
 });
 type ContentEditor = typeof import("../../components/portal/LessonContentEditor");
 let contentEditor: ContentEditor | undefined;

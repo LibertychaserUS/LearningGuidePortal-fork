@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CourseDraftInput, CourseMetadata, CourseListQuery } from "@/contracts/course-authoring";
+import type { LessonContent } from "@/contracts/lesson-content";
 import type { ProductCourse, ProductUser, ProductSection } from "@/services/productStore";
 import { canManageCourse } from "./backofficeAccess";
 import { validateLessonContents, lessonContentsText, courseMediaAssetId } from "./lessonContent";
@@ -63,15 +64,6 @@ export function applyCourseDraft(course: ProductCourse, input: CourseDraftInput)
   if (!Array.isArray(input.sections) || input.sections.length > 100) throw new AuthoringError("invalid");
   const sectionIds = new Set(course.sections.map(section => section.id));
   const existingLessons = new Map(course.sections.flatMap(section => section.lessons.map(lesson => [lesson.id, lesson] as const)));
-  function activeVideoUrls(items: Array<{ type: string; active?: boolean; url?: string }> | undefined): Set<string> {
-    const urls = new Set<string>();
-    for (const item of items ?? []) if (item.type === "video" && item.active !== false && item.url) urls.add(item.url);
-    return urls;
-  }
-  function sameActiveVideoUrls(a: Array<{ type: string; active?: boolean; url?: string }> | undefined, b: Array<{ type: string; active?: boolean; url?: string }> | undefined): boolean {
-    const left = activeVideoUrls(a), right = activeVideoUrls(b);
-    return left.size === right.size && [...left].every(url => right.has(url));
-  }
   const seen = new Set<string>();
   let publicCount = 0, lessonCount = 0;
   function identity(value: unknown, existing: Set<string> | Map<string, unknown>, kind: string) {
@@ -84,7 +76,7 @@ export function applyCourseDraft(course: ProductCourse, input: CourseDraftInput)
     if (!section || !Array.isArray(section.lessons)) throw new AuthoringError("invalid");
     return { id: identity(section.id, sectionIds, "section"), title: text(section.title, 255), lessons: section.lessons.map(lesson => {
       if (!lesson || ++lessonCount > 1000 || !Number.isInteger(lesson.durationMinutes) || lesson.durationMinutes < 1 || lesson.durationMinutes > 600 || typeof lesson.isPublic !== "boolean") throw new AuthoringError("invalid");
-      if (lesson.videoDurationSeconds != null && (!Number.isInteger(lesson.videoDurationSeconds) || lesson.videoDurationSeconds < 0 || lesson.videoDurationSeconds > 36000)) throw new AuthoringError("invalid");
+      // PRD 12.5.1 (F1): lesson.videoDurationSeconds is untrusted browser input and is never read.
       if (lesson.isPublic && (++publicCount > 1 || lessonCount !== 1)) throw new AuthoringError("invalid");
       const existing = existingLessons.get(lesson.id);
       let contents = existing?.contents;
@@ -93,10 +85,11 @@ export function applyCourseDraft(course: ProductCourse, input: CourseDraftInput)
       }
       // Rich contents are authoritative. Legacy clients cannot silently flatten them.
       const body = contents?.length ? lessonContentsText(contents).slice(0, 200000) : text(lesson.body, 200000, false);
-      // An omitted duration keeps the stored value only while the active video URLs are unchanged; a swapped video must not inherit it.
-      const videoDurationSeconds = lesson.videoDurationSeconds !== undefined
-        ? lesson.videoDurationSeconds
-        : sameActiveVideoUrls(contents, existing?.contents) ? existing?.videoDurationSeconds ?? null : null;
+      // PRD 12.5.1 (F1): the browser-submitted videoDurationSeconds is ignored. The neutral sync
+      // pass keeps a previously measured value only while the single active local video is
+      // unchanged; resolveCourseDraftMediaDurations then replaces it with the authoritative
+      // asset-header value (measured at upload from mvhd) or null.
+      const videoDurationSeconds = deriveLessonVideoDuration(contents ?? existing?.contents, course.id, existing?.contents, existing?.videoDurationSeconds ?? null);
       // 有实测媒体时分钟数由媒体算出；没有实测秒数才退回编排分钟。
       const durationMinutes = lessonMinutesFromMedia(videoDurationSeconds) ?? lesson.durationMinutes;
       return { ...existing, id: identity(lesson.id, existingLessons, "lesson"), title: text(lesson.title, 255), summary: lesson.summary === undefined ? existing?.summary || "" : text(lesson.summary, 500, false), body, ...(contents !== undefined ? { contents } : {}), durationMinutes, videoDurationSeconds, isPublic: lesson.isPublic };
@@ -115,4 +108,73 @@ export function applyCourseDraft(course: ProductCourse, input: CourseDraftInput)
     ...(input.cover !== undefined ? { thumbnailPath: input.cover || null } : {}),
     archivedSections: [...(course.archivedSections || []), ...archived],
     updatedAt: new Date(Math.max(Date.now(), Date.parse(course.updatedAt) + 1)).toISOString() };
+}
+
+/** The active video URLs of a lesson's rich contents: the only source a lesson duration may come from. */
+export function lessonVideoUrls(contents: LessonContent[] | undefined): Set<string> {
+  const urls = new Set<string>();
+  for (const content of contents ?? []) if (content.type === "video" && content.active !== false && content.url) urls.add(content.url);
+  return urls;
+}
+
+/**
+ * PRD 12.5.1 / F1: neutral sync pass for the lesson seconds, run inside applyCourseDraft.
+ * The previous value survives only while the single active video is an unchanged local
+ * course-media asset; external URLs, old S3 seeds, swapped, ambiguous or absent videos
+ * clear it to null. The browser-submitted videoDurationSeconds is never read.
+ */
+export function deriveLessonVideoDuration(contents: LessonContent[] | undefined, courseId: string, existingContents: LessonContent[] | undefined, previous: number | null): number | null {
+  const urls = lessonVideoUrls(contents);
+  if (urls.size !== 1) return null;
+  const url = [...urls][0];
+  if (!courseMediaAssetId(url, courseId)) return null;
+  const prior = lessonVideoUrls(existingContents);
+  return prior.size === 1 && prior.has(url) ? previous : null;
+}
+
+export type VideoSecondsLookup = (assetId: string) => Promise<number | null>;
+
+/**
+ * PRD 12.5.1 / F1: authoritative save-time resolution. Only a single active video that is a
+ * local course-media asset is measurable: its upload-time mvhd value lives in the media asset
+ * header. External URLs, old S3 seeds, unmeasured uploads and ambiguous videos resolve to null.
+ */
+export async function resolveLessonVideoDurationSeconds(contents: LessonContent[] | undefined, courseId: string, lookup: VideoSecondsLookup): Promise<number | null> {
+  const urls = lessonVideoUrls(contents);
+  if (urls.size !== 1) return null;
+  const assetId = courseMediaAssetId([...urls][0], courseId);
+  if (!assetId) return null;
+  const seconds = await lookup(assetId);
+  return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 && seconds <= 36000 ? Math.round(seconds) : null;
+}
+
+/**
+ * PRD 12.5.1 / F1: after applyCourseDraft, overwrite every lesson's seconds with the measured
+ * asset value (or null) and re-derive the minutes from the measured media. Minutes fall back to
+ * the authored draft minutes when nothing is measured. Must run inside the save transaction so
+ * the persisted aggregate never contains a browser-supplied duration.
+ */
+export async function resolveCourseDraftMediaDurations(course: ProductCourse, input: CourseDraftInput, lookup: VideoSecondsLookup): Promise<ProductCourse> {
+  const authoredMinutes = new Map<string, number>();
+  for (const section of input.sections) for (const lesson of section.lessons) authoredMinutes.set(lesson.id, lesson.durationMinutes);
+  for (const section of course.sections) for (const lesson of section.lessons) {
+    const seconds = await resolveLessonVideoDurationSeconds(lesson.contents, course.id, lookup);
+    lesson.videoDurationSeconds = seconds;
+    lesson.durationMinutes = lessonMinutesFromMedia(seconds) ?? authoredMinutes.get(lesson.id) ?? lesson.durationMinutes;
+  }
+  return course;
+}
+
+/** Production lookup: the upload-measured seconds stored in the media asset container header. */
+export async function storedAssetVideoSeconds(courseId: string): Promise<VideoSecondsLookup> {
+  const { readStoredAssetRange } = await import("./courseMedia");
+  return async (assetId: string) => {
+    try {
+      // A one-byte range reads the container header (and nothing else) and returns the stored
+      // CourseMediaAsset metadata, including the upload-time mvhd measurement when it exists.
+      const { asset } = await readStoredAssetRange(courseId, assetId, 0, 0);
+      const seconds = asset.durationSeconds;
+      return typeof seconds === "number" && seconds > 0 ? seconds : null;
+    } catch { return null; }
+  };
 }
