@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { COURSE_MEDIA_MAX_BYTES, type CourseMediaAsset } from "@/contracts/lesson-content";
+import { mp4DurationSeconds } from "@/lib/mediaDuration";
 import { systemRoot } from "@/services/fileStore";
 import { vfsReadBuffer, vfsReadBufferRange, vfsStat, vfsWriteBuffer } from "@/services/persistence/vfs";
 import { persistenceEnabled } from "@/services/persistence/config";
@@ -185,8 +186,11 @@ export async function uploadCourseMedia(user: ProductUser | null, courseId: stri
   const metadata = validateCourseMediaFile(file);
   if (usage && (usage === "course-cover" ? metadata.fileType !== "image" : usage !== `content-${metadata.fileType}`)) throw new CourseMediaError("invalid", 400, "File type does not match its intended use.");
   checkStorage();
+  // BUG-0348：MP4/MOV 上传时顺带读出真实时长；webm/其它容器一律不写。
+  const duration = metadata.fileType === "video" && ["mp4", "mov"].includes(metadata.extension) ? mp4DurationSeconds(file.bytes) : null;
+  const durationSeconds = duration !== null && duration > 0 && duration <= 36000 ? Math.round(duration) : null;
   const id = randomUUID();
-  const asset: CourseMediaAsset = { ...metadata, id, courseId, url: `/api/course-media/${courseId}/${id}`, createdAt: new Date().toISOString() };
+  const asset: CourseMediaAsset = { ...metadata, id, courseId, url: `/api/course-media/${courseId}/${id}`, createdAt: new Date().toISOString(), ...(durationSeconds !== null ? { durationSeconds } : {}) };
   // One private object keeps metadata and bytes together in local and S3 storage.
   const header = Buffer.from(JSON.stringify({ ...asset, uploadedBy: user!.id }));
   const length = Buffer.alloc(4); length.writeUInt32BE(header.length);

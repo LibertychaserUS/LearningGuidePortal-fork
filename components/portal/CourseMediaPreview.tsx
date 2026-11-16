@@ -94,7 +94,7 @@ export function LessonModal({ title, locale, onClose, children, portal = true }:
   return portal ? createPortal(content, document.body) : content;
 }
 
-export function MediaUpload({ courseId, value, onChange, accept, locale }: { courseId: string; value: string; onChange: (url: string) => void; accept: string; locale: LessonLocale }) {
+export function MediaUpload({ courseId, value, onChange, accept, locale }: { courseId: string; value: string; onChange: (url: string, durationSeconds: number | null) => void; accept: string; locale: LessonLocale }) {
   const t = lessonMessages(locale), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const beginUpload = useContext(CourseUploadActivity);
   const controller = useRef<AbortController | null>(null), latest = useRef(onChange); latest.current = onChange;
@@ -108,11 +108,11 @@ export function MediaUpload({ courseId, value, onChange, accept, locale }: { cou
       const response = await fetch(`/api/backoffice/courses/${encodeURIComponent(courseId)}/media`, { method: 'POST', body: form, signal: request.signal });
       const result = await response.json();
       if (!response.ok || result.ok !== true || !safeMediaUrl(result.data?.url)) throw new Error('upload');
-      if (!request.signal.aborted) latest.current(result.data.url);
+      if (!request.signal.aborted) latest.current(result.data.url, typeof result.data.durationSeconds === 'number' ? result.data.durationSeconds : null);
     } catch { if (!request.signal.aborted) setError(t.uploadFailed); }
     finally { finishUpload?.(); if (!request.signal.aborted) setBusy(false); }
   }
-  return <div className="la-upload"><label>{t.url}<input type="text" value={value} disabled={busy} onChange={e => onChange(e.target.value)} aria-invalid={!!value && !safeMediaUrl(value)}/></label><label className="la-file"><Upload size={16}/>{busy ? t.uploading : t.upload}<input type="file" accept={accept} disabled={busy} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void upload(file); }}/></label>{(error || (value && !safeMediaUrl(value))) && <p role="alert">{error || t.invalidUrl}</p>}</div>;
+  return <div className="la-upload"><label>{t.url}<input type="text" value={value} disabled={busy} onChange={e => onChange(e.target.value, null)} aria-invalid={!!value && !safeMediaUrl(value)}/></label><label className="la-file"><Upload size={16}/>{busy ? t.uploading : t.upload}<input type="file" accept={accept} disabled={busy} onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; if (file) void upload(file); }}/></label>{(error || (value && !safeMediaUrl(value))) && <p role="alert">{error || t.invalidUrl}</p>}</div>;
 }
 
 export function CourseMediaPreview({ type, url, title = '', locale }: { type: 'video' | 'image' | 'audio' | 'pdf' | 'model3d'; url?: string; title?: string; locale: LessonLocale }) {

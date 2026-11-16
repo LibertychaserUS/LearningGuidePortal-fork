@@ -53,4 +53,6 @@ export type CourseMediaAsset = {
   extension: string;
   size: number;
   createdAt: string;
+  /** BUG-0348：上传时从媒体文件读到的真实时长（秒）；非视频或读不到时缺省。 */
+  durationSeconds?: number | null;
 };

@@ -17,11 +17,26 @@ export function newLessonContentId() {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
 function reordered<T>(items: T[], index: number, delta: number) { const next = [...items], target = index + delta; if (target >= 0 && target < next.length) [next[index], next[target]] = [next[target], next[index]]; return next; }
+export function lessonVideoDuration(contents: LessonContent[], measured: ReadonlyMap<string, number | null>, previous: number | null = null): number | null {
+  const urls = new Set<string>();
+  for (const content of contents) if (content.type === 'video' && content.active !== false && content.url) urls.add(content.url);
+  if (urls.size !== 1) return null;
+  const url = [...urls][0];
+  let measuredNull = false;
+  for (const content of contents) {
+    if (content.type !== 'video' || content.active === false || content.url !== url) continue;
+    const seconds = measured.get(content.id);
+    if (typeof seconds === 'number') return seconds;
+    if (seconds === null) measuredNull = true;
+  }
+  return measuredNull ? null : previous;
+}
 
-export function LessonContentEditor({ courseId, value, onChange, locale }: { courseId: string; value: LessonContent[]; onChange: (value: LessonContent[]) => void; locale: LessonLocale }) {
+export function LessonContentEditor({ courseId, value, onChange, locale, onVideoDuration, videoDurationSeconds }: { courseId: string; value: LessonContent[]; onChange: (value: LessonContent[]) => void; locale: LessonLocale; onVideoDuration?: (seconds: number | null) => void; videoDurationSeconds?: number | null }) {
   const t = lessonMessages(locale), [preview, setPreview] = useState(false), [newType, setNewType] = useState<LessonContent['type']>('text');
   const current = useRef(value); current.current = value;
-  const emit = (next: LessonContent[]) => { current.current = next; onChange(next); };
+  const measured = useRef(new Map<string, number | null>());
+  const emit = (next: LessonContent[]) => { current.current = next; onChange(next); onVideoDuration?.(lessonVideoDuration(next, measured.current, videoDurationSeconds ?? null)); };
   const change = (id: string, patch: Partial<LessonContent>) => emit(current.current.map(item => item.id === id ? { ...item, ...patch } : item));
   function changeNode(contentId: string, nodeId: string, patch: Partial<LessonNode>) { const content = current.current.find(c => c.id === contentId); if (content) change(contentId, { nodes: content.nodes.map(node => node.id === nodeId ? { ...node, ...patch } : node) }); }
   function orderButtons(index: number, count: number, move: (delta: number) => void, remove: () => void) { return <div className="la-actions"><button className="la-icon" type="button" title={t.up} aria-label={t.up} disabled={!index} onClick={() => move(-1)}><ArrowUp size={16}/></button><button className="la-icon" type="button" title={t.down} aria-label={t.down} disabled={index === count - 1} onClick={() => move(1)}><ArrowDown size={16}/></button><button className="la-icon" type="button" title={t.delete} aria-label={t.delete} onClick={() => { if (window.confirm(t.deleteConfirm)) remove(); }}><Trash2 size={16}/></button></div>; }
@@ -32,7 +47,7 @@ export function LessonContentEditor({ courseId, value, onChange, locale }: { cou
         <div className="la-heading"><span className="la-number">{index + 1}</span><label>{t.title}<input maxLength={255} value={content.title} onChange={e => change(content.id, { title: e.target.value })}/></label>{orderButtons(index, value.length, delta => emit(reordered(current.current, index, delta)), () => emit(current.current.filter(c => c.id !== content.id)))}</div>
         <div className="la-columns"><label>{t.type}<select value={content.type} onChange={e => change(content.id, { type: e.target.value as LessonContent['type'], url: undefined })}>{(['text','video','pdf'] as const).map(type => <option key={type} value={type}>{t[type]}</option>)}</select></label><label>{t.mode}<select value={content.mode} onChange={e => change(content.id, { mode: e.target.value as LessonContent['mode'] })}><option value="lecture">{t.lecture}</option><option value="interactive">{t.interactive}</option></select></label></div>
         <label className="la-check"><input type="checkbox" checked={content.active !== false} onChange={e => change(content.id, { active: e.target.checked })}/>{t.active}</label>
-        {content.type === 'text' ? <RichLessonEditor courseId={courseId} value={content.html || ''} onChange={html => change(content.id, { html })} nodes={content.nodes} locale={locale}/> : <><MediaUpload key={content.type} courseId={courseId} value={content.url || ''} onChange={url => change(content.id, { url })} accept={accepts[content.type]} locale={locale}/>{content.url && <CourseMediaPreview type={content.type} url={content.url} title={content.title} locale={locale}/>}</>}
+        {content.type === 'text' ? <RichLessonEditor courseId={courseId} value={content.html || ''} onChange={html => change(content.id, { html })} nodes={content.nodes} locale={locale}/> : <><MediaUpload key={content.type} courseId={courseId} value={content.url || ''} onChange={(url, durationSeconds) => { measured.current.set(content.id, durationSeconds); change(content.id, { url }); }} accept={accepts[content.type]} locale={locale}/>{content.url && <CourseMediaPreview type={content.type} url={content.url} title={content.title} locale={locale}/>}</>}
         <div className="la-heading"><h4>{t.nodes}</h4></div>
         {content.nodes.map((node, ni) => <details className="la-node-editor" key={node.id}><summary>{node.title || t.newNode} <span>{t[node.type]}{content.type === 'video' ? ` · ${node.triggerTime}s` : ''}</span></summary><div className="la-fields">
           <div className="la-heading"><label>{t.title}<input value={node.title} maxLength={255} onChange={e => changeNode(content.id, node.id, { title: e.target.value })}/></label>{orderButtons(ni, content.nodes.length, delta => change(content.id, { nodes: reordered(content.nodes, ni, delta) }), () => change(content.id, { nodes: content.nodes.filter(n => n.id !== node.id) }))}</div>

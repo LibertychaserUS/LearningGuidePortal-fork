@@ -390,3 +390,40 @@ Helpdesk v5 Part G (2026-10-30, [helpdesk-tickets.md](helpdesk-tickets.md) §26,
 ## Authentication return destination (2026-11-02)
 
 `POST /api/auth/register` and `POST /api/auth/resend-verification` accept optional `returnTo: string`. It is a navigation destination, not an authorization fact. The existing `safeReturnTo` validation accepts only local paths and falls back to `/{locale}/portal`; the validated destination is included in the verification email URL. Registration/session creation, consent, email verification, token issuance, resend limits and response shapes remain unchanged. The check-email and verify-email pages preserve this destination through the subsequent sign-in step. Existing login and OAuth paths retain explicit return destinations, with the Portal home as the no-source fallback.
+
+## 状态码契约：401 / 403 / 400（2026-11-15）
+
+本节统一 Portal 写入型 API 的失败状态码，作为 `tests/e2e/E2E-B1-negative.spec.ts` 与 `tests/e2e/E2E-B1-purchase-learn.spec.ts` 的断言依据。三种拒绝各司其职，不得互相顶替：
+
+| 情形 | 状态码 | 语义 |
+|---|---|---|
+| 没有有效 Session（未登录、Session 过期、WeChat 未绑定邮箱） | **401** | 不知道你是谁 |
+| 已登录，但当前 Course/资源没有 Entitlement，或已过期 | **403** | 知道你是谁，但你没有这个权限 |
+| 请求本身不合法：缺字段、类型错误、缺 consents、quote 过期、非法参数 | **400** | 请求内容有问题，与身份无关 |
+| 写入型接口来源校验失败（Origin 与请求 Host 不符，或缺少 Origin） | **403** | 拒绝跨站写入；与身份无关 |
+
+### 来源校验先于身份校验（有意为之）
+
+以下写入接口在读取 Session/身份之前，先做来源校验，防止跨站请求伪造：
+
+- `POST`/`PATCH`/`DELETE /api/ai-tutor`：`services/adminHost.ts requestOriginMatches`，失败返回 403 `{ error: "Invalid origin." }`。
+- `POST /api/trial`、`POST /api/purchase/checkout`：`services/paymentService.ts checkoutRequestOrigin`，失败抛出 `PaymentError("origin_mismatch", 403)`。
+- `POST /api/study/bookmarks`、`POST /api/my-learning/orders/:orderId`：同样先校验来源再校验身份，失败返回 403 `forbidden_origin`。
+- `PUT /api/courses/:courseId/learning-mode`：来源不匹配返回 403。
+
+因此，**未登录 + 来源不符时必须返回 403，而不是 401**。这个顺序是既有的安全决定，不得为了迁就测试或客户端而把身份校验提前。浏览器同源发起的请求会自带匹配的 `Origin`，正常用户路径不受影响；只有非浏览器客户端（包括 Playwright 的 `request` fixture，默认不发 `Origin`）会先撞上这一层拒绝。
+
+对应地：
+
+- `POST /api/ai-tutor` 不带 `Origin` → **403 `Invalid origin.`**（来源校验先拦）；
+- `POST /api/ai-tutor` 带与请求 Host 一致的 `Origin` 且未登录 → **401**（进入身份校验）；
+- `POST /api/trial` / `POST /api/purchase/checkout` 未登录且不带 `Origin` → **401**（这两个路由先取 `currentProductUser`，再进入 `startPayment` 的来源校验）；已登录但不带 `Origin` → **403 `origin_mismatch`**；
+- 已登录、`Origin` 正确、但缺少 `consents` → **400 `consent_required`**（默认 400）。
+- 已登录但无 Entitlement 的 `POST /api/study/events` → **403**（`lib/studyEventHttpStatus.ts` 把 `Course access is required.` 与 `Preview lessons cannot be completed.` 映射为 403，其余业务错误为 400）。
+
+### 测试要求
+
+- 覆盖“未登录”时，必须区分两条路径：不带 `Origin` 的 403（来源拒绝）和带正确 `Origin` 的 401（身份拒绝）。不得删掉 401 断言来迁就 403。
+- 覆盖“已登录但无权益”时，必须带上正确 `Origin`，确保 403 来自 Entitlement 而不是来源校验，否则是假通过。
+- 覆盖“请求体非法”时，同样要带正确 `Origin`，才能落到 400（consent/参数校验）。
+- Playwright 用例通过 `appOrigin(baseURL)` 生成 `http://127.0.0.1:<E2E_PORT>` 并作为 `origin` header 发送；`playwright.e2e.config.ts` 的本地 `APP_ENV=DEV` 会接受与请求 Host 完全一致的 loopback origin。

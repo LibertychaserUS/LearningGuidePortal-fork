@@ -3,6 +3,7 @@ import type { CourseDraftInput, CourseMetadata, CourseListQuery } from "@/contra
 import type { ProductCourse, ProductUser, ProductSection } from "@/services/productStore";
 import { canManageCourse } from "./backofficeAccess";
 import { validateLessonContents, lessonContentsText, courseMediaAssetId } from "./lessonContent";
+import { lessonMinutesFromMedia } from "@/lib/courseDuration";
 
 export class AuthoringError extends Error {
   constructor(public code: "invalid" | "conflict" | "published" | "restricted" | "notFound" | "inUse" | "archived") { super(code); }
@@ -62,6 +63,15 @@ export function applyCourseDraft(course: ProductCourse, input: CourseDraftInput)
   if (!Array.isArray(input.sections) || input.sections.length > 100) throw new AuthoringError("invalid");
   const sectionIds = new Set(course.sections.map(section => section.id));
   const existingLessons = new Map(course.sections.flatMap(section => section.lessons.map(lesson => [lesson.id, lesson] as const)));
+  function activeVideoUrls(items: Array<{ type: string; active?: boolean; url?: string }> | undefined): Set<string> {
+    const urls = new Set<string>();
+    for (const item of items ?? []) if (item.type === "video" && item.active !== false && item.url) urls.add(item.url);
+    return urls;
+  }
+  function sameActiveVideoUrls(a: Array<{ type: string; active?: boolean; url?: string }> | undefined, b: Array<{ type: string; active?: boolean; url?: string }> | undefined): boolean {
+    const left = activeVideoUrls(a), right = activeVideoUrls(b);
+    return left.size === right.size && [...left].every(url => right.has(url));
+  }
   const seen = new Set<string>();
   let publicCount = 0, lessonCount = 0;
   function identity(value: unknown, existing: Set<string> | Map<string, unknown>, kind: string) {
@@ -83,7 +93,13 @@ export function applyCourseDraft(course: ProductCourse, input: CourseDraftInput)
       }
       // Rich contents are authoritative. Legacy clients cannot silently flatten them.
       const body = contents?.length ? lessonContentsText(contents).slice(0, 200000) : text(lesson.body, 200000, false);
-      return { ...existing, id: identity(lesson.id, existingLessons, "lesson"), title: text(lesson.title, 255), summary: lesson.summary === undefined ? existing?.summary || "" : text(lesson.summary, 500, false), body, ...(contents !== undefined ? { contents } : {}), durationMinutes: lesson.durationMinutes, videoDurationSeconds: lesson.videoDurationSeconds ?? null, isPublic: lesson.isPublic };
+      // An omitted duration keeps the stored value only while the active video URLs are unchanged; a swapped video must not inherit it.
+      const videoDurationSeconds = lesson.videoDurationSeconds !== undefined
+        ? lesson.videoDurationSeconds
+        : sameActiveVideoUrls(contents, existing?.contents) ? existing?.videoDurationSeconds ?? null : null;
+      // 有实测媒体时分钟数由媒体算出；没有实测秒数才退回编排分钟。
+      const durationMinutes = lessonMinutesFromMedia(videoDurationSeconds) ?? lesson.durationMinutes;
+      return { ...existing, id: identity(lesson.id, existingLessons, "lesson"), title: text(lesson.title, 255), summary: lesson.summary === undefined ? existing?.summary || "" : text(lesson.summary, 500, false), body, ...(contents !== undefined ? { contents } : {}), durationMinutes, videoDurationSeconds, isPublic: lesson.isPublic };
     }) };
   });
   const removedSections = input.removedSectionIds ?? [], removedLessons = input.removedLessonIds ?? [];

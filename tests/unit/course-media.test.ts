@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CourseMediaAsset, LessonContent } from "../../contracts/lesson-content";
+import { mp4DurationSeconds, mp4DurationSecondsFromReader } from "../../lib/mediaDuration";
 import type { ProductUser } from "../../services/productStore";
 
 const cwd = process.cwd();
@@ -413,4 +414,62 @@ test("multipart streaming enforces the server cap even with no Content-Length an
   form.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "b.png");
   await assert.rejects(media.readCourseMediaUpload(new Request("http://localhost/upload", { method: "POST", body: form })), { status: 400 });
   await assert.rejects(media.readCourseMediaUpload(new Request("http://localhost/upload", { method: "POST", headers: { "content-type": "multipart/form-data; boundary=test", "content-length": String(length) }, body: "small" })), { status: 413 });
+});
+
+test("mp4/mov uploads record the rounded mvhd duration; other containers and unreadable movies do not", async () => {
+  const box = (type: string, payload: Buffer) => { const head = Buffer.alloc(8); head.writeUInt32BE(payload.length + 8); head.write(type, 4, "ascii"); return Buffer.concat([head, payload]); };
+  const isoMedia = (brand: string, timescale: number, duration: number, withMvhd = true) => {
+    const ftyp = box("ftyp", Buffer.concat([Buffer.from(brand, "ascii"), Buffer.alloc(4), Buffer.from(brand, "ascii")]));
+    const mdat = box("mdat", Buffer.from([0, 0, 0, 1]));
+    const mvhd = Buffer.alloc(20); mvhd.writeUInt32BE(timescale, 12); mvhd.writeUInt32BE(duration, 16);
+    return Buffer.concat([ftyp, mdat, box("moov", withMvhd ? box("mvhd", mvhd) : box("free", Buffer.alloc(8)))]);
+  };
+  const clip = isoMedia("isom", 600, 3300);
+  const video = await media.uploadCourseMedia(teacher, courseId, { bytes: clip, name: "clip.mp4", type: "video/mp4" });
+  assert.equal(video.fileType, "video");
+  assert.equal(video.durationSeconds, 6);
+  const movie = await media.uploadCourseMedia(teacher, courseId, { bytes: isoMedia("qt  ", 1000, 4200), name: "clip.mov", type: "video/quicktime" });
+  assert.equal(movie.durationSeconds, 4);
+  const noMvhd = await media.uploadCourseMedia(teacher, courseId, { bytes: isoMedia("isom", 600, 3300, false), name: "silent.mp4", type: "video/mp4" });
+  assert.equal("durationSeconds" in noMvhd, false);
+  const webm = await media.uploadCourseMedia(teacher, courseId, { bytes: Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.from("webm"), Buffer.from("18538067", "hex")]), name: "clip.webm", type: "video/webm" });
+  assert.equal("durationSeconds" in webm, false);
+  const image = await media.uploadCourseMedia(teacher, courseId, input());
+  assert.equal("durationSeconds" in image, false);
+});
+
+const mp4Box = (type: string, payload: Buffer) => { const head = Buffer.alloc(8); head.writeUInt32BE(payload.length + 8); head.write(type, 4, "ascii"); return Buffer.concat([head, payload]); };
+const mvhdBoxPayload = (timescale: number, duration: number) => { const payload = Buffer.alloc(20); payload.writeUInt32BE(timescale, 12); payload.writeUInt32BE(duration, 16); return payload; };
+const ftypBox = (brand: string) => mp4Box("ftyp", Buffer.concat([Buffer.from(brand, "ascii"), Buffer.alloc(4), Buffer.from(brand, "ascii")]));
+const decoyMvhd = () => Buffer.concat([Buffer.from("mvhd", "ascii"), mvhdBoxPayload(1, 4_000_000_000)]);
+
+test("mp4 duration walks top-level boxes instead of substring-scanning mdat for mvhd", () => {
+  const clip = Buffer.concat([ftypBox("isom"), mp4Box("mdat", decoyMvhd()), mp4Box("moov", mp4Box("mvhd", mvhdBoxPayload(600, 3300)))]);
+  assert.equal(mp4DurationSeconds(clip), 5.5);
+  assert.notEqual(mp4DurationSeconds(clip), 4_000_000_000);
+});
+
+test("mp4 duration ignores an mvhd literal inside a sibling box payload under moov", () => {
+  const clip = Buffer.concat([ftypBox("isom"), mp4Box("moov", Buffer.concat([mp4Box("free", decoyMvhd()), mp4Box("mvhd", mvhdBoxPayload(1000, 4200))]))]);
+  assert.equal(mp4DurationSeconds(clip), 4.2);
+  assert.notEqual(mp4DurationSeconds(clip), 4_000_000_000);
+});
+
+test("mp4 duration skips a 64-bit largesize box by its 16-byte header", () => {
+  const payload = decoyMvhd();
+  const head = Buffer.alloc(16); head.writeUInt32BE(1, 0); head.write("free", 4, "ascii"); head.writeBigUInt64BE(BigInt(payload.length + 16), 8);
+  const clip = Buffer.concat([ftypBox("isom"), head, payload, mp4Box("moov", mp4Box("mvhd", mvhdBoxPayload(600, 3300)))]);
+  assert.equal(mp4DurationSeconds(clip), 5.5);
+  assert.notEqual(mp4DurationSeconds(clip), 4_000_000_000);
+});
+
+test("ranged mp4 duration reads only box headers and moov, never the mdat payload", async () => {
+  const moov = mp4Box("moov", mp4Box("mvhd", mvhdBoxPayload(600, 3300)));
+  const mdatPayload = Buffer.alloc(1024 * 1024, 0x41);
+  const clip = Buffer.concat([ftypBox("isom"), mp4Box("mdat", mdatPayload), moov]);
+  const moovStart = clip.length - moov.length;
+  const reads: Array<[number, number]> = [];
+  const read = async (start: number, length: number) => { reads.push([start, length]); return clip.subarray(start, start + length); };
+  assert.equal(await mp4DurationSecondsFromReader(read, clip.length), 5.5);
+  assert.ok(reads.every(([start, length]) => length <= 16 || start >= moovStart));
 });
