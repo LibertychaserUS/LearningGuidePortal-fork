@@ -125,13 +125,11 @@ export function resolveCoursePageCta(input: {
   if (input.hasLiveEntitlement) return "continue_learning";
   if (input.accessEnded) return "view_plans";
   const previewRemaining = input.previewLessonIds.some((id) => !input.completedPreviewIds.includes(id));
-  if (input.previewLessonIds.length > 0 && previewRemaining) {
+  if (previewRemaining) {
     const openedPreview = input.openedLessonIds.some((id) => input.previewLessonIds.includes(id));
     return openedPreview ? "continue_preview" : "start_preview";
   }
-  if (input.previewLessonIds.length > 0 && input.openedLessonIds.some((id) => input.previewLessonIds.includes(id))) {
-    return "view_plans";
-  }
+  // 预览要么不存在、要么已全部完成：两种情况在 D1 里都落到 View plans。
   return "view_plans";
 }
 
